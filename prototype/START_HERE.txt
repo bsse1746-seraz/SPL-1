@@ -1,0 +1,92 @@
+TIMETABLEX MINI — BASIC C++17 PROTOTYPE
+For Mohammad Seraz Alam | IIT, University of Dhaka | SPL-1
+
+WHAT THIS IS
+A small working demonstration of your approved-direction TimeTableX idea:
+sample data -> constraint checks -> recursive search -> validation -> timetable.
+It follows the CLI-first approach in your proposal and personal guide.
+The scheduling engine is handwritten C++; no external libraries are needed.
+
+RUN ON WINDOWS
+1. Extract the entire ZIP.
+2. If g++ is already installed and on PATH, double-click run_windows.bat.
+3. Choose 1 to generate the timetable. Open timetable.csv in Excel if desired.
+4. Choose 2 for an impossible case, or 3 to run the nine checks.
+5. Choose 0 to exit.
+The batch file needs a C++ compiler; it is not a precompiled Windows program.
+
+IF YOU USE A C++ IDE
+Create a console project, use C++17, and use this main.cpp as its only source.
+Build and run. No packages, Qt, database, or internet connection are needed.
+For a quick online compiler experiment, paste main.cpp into a C++17 compiler
+and supply 1 then 0 on separate input lines. CSV download depends on that tool.
+
+MANUAL BUILD (terminal opened in the extracted folder)
+g++ -std=c++17 -Wall -Wextra -pedantic main.cpp -o timetablex
+Windows PowerShell: .\timetablex.exe
+Linux/macOS: ./timetablex
+Optional arguments: --demo, --impossible, --test
+Example: ./timetablex --test
+
+FIRST TWO-MINUTE DEMO
+Choose 1. You will see eight sessions automatically assigned to times and rooms.
+Teacher A cannot teach Sunday 09:00. Two independent classes may run at once,
+but the same teacher, batch, or room cannot be double-booked.
+See the full timetable and the two batch views. The output reports zero hard
+violations after an independent validator checks the completed assignments.
+Choose 2. Teacher A now has no available periods, so generation fails cleanly.
+This case does not overwrite the CSV from your previous successful run.
+Choose 3. Nine checks include a forced backtracking example.
+
+WHAT TO READ IN main.cpp
+1. Session and Placement: small structs, similar to C structs.
+2. sample(): the data; every row means one required one-hour class.
+3. canPlace(): checks availability and teacher/batch/room collisions.
+4. search(): try a position, recurse, undo it if later classes cannot fit.
+5. validate(): checks the whole result independently of canPlace().
+6. show() and exportCSV(): present the computed result.
+7. main(): simple terminal menu.
+
+TRY A SMALL CHANGE
+In sample(), change p.available[0][0] = false to another slot index.
+Indices 0,1,2 are Sunday 09:00,10:00,11:00; 3,4,5 are Monday, and so on.
+Add a repeated session row to request one more class, then rebuild.
+Teacher IDs are 0..2, batch IDs 0..1. Keep IDs within those ranges.
+This tiny version assumes trusted, valid built-in data; it has no input editor.
+
+WHY CLASSES MAY CLUSTER EARLY IN THE WEEK
+The search tries early slots first and stops at the first valid timetable.
+Repeated courses may be placed on the same day. This is allowed in this beta.
+A valid timetable is not necessarily convenient: soft scoring and optimization
+are planned later. The normal demo may need zero backtracks; the forced test
+proves the undo-and-retry path also works.
+
+CURRENT SCOPE
+8 one-hour sessions; 3 fictional teachers; 2 batches; 2 interchangeable rooms;
+Sunday–Thursday, 09:00/10:00/11:00; fixed sample data; clash checks;
+teacher unavailability; automatic generation; validator; batch views; CSV.
+
+LATER, IN THE FOUR-MONTH PROJECT
+Separate modules/classes; validated data entry and save/load; room capacity and
+lab type; consecutive lab periods; teacher/room views; MRV and forward checking;
+soft penalties and optimization; GUI; realistic data and performance analysis.
+This prototype is a starting point, not the complete SPL-1 submission.
+The exhaustive search has no timeout and is intended only for tiny inputs.
+Do not scale it up before adding search limits and heuristics.
+
+DEVELOPMENT HABIT
+Put the extracted project in your own Git repository, understand the source,
+and make real incremental commits as you implement each next feature.
+Do not represent this generated starter as four months of independent work.
+
+PACKAGE CONTENTS
+main.cpp          Complete readable source, including nine checks.
+run_windows.bat   Compile and run with an existing g++ installation.
+START_HERE.txt    This guide.
+sample_output.txt Captured output from a real successful run.
+timetable.csv     Sample generated timetable; replaced on successful runs.
+
+VERIFICATION
+Compiled with g++ C++17, -Wall -Wextra -pedantic, without warnings.
+All nine checks passed in the Linux build environment.
+Windows script supplied, but not executed on Windows here.
