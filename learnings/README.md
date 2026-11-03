@@ -5,6 +5,7 @@ This directory records the design decisions, implementation logic, tests, and vi
 ## Reading order
 
 1. [M2 Step 1 — Credit-Based Session Generation](02-credit-based-session-generation.md)
+2. [M2 Step 2 — Structured Course Input](03-csv-course-input.md)
 
 ## Workflow
 
