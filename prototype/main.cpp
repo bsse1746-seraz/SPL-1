@@ -1,5 +1,5 @@
-// TimeTableX Mini | M1 Step 3: duration-aware weekly scheduling (C++17).
-// Teachers remain fixed to their course sessions. Optimization comes later.
+// TimeTableX Mini | M2 Step 1: course credits to weekly session requirements (C++17).
+// Fixed teachers; configurable academic credit policy; validated session patterns.
 #include <iostream>
 #include <vector>
 #include <string>
@@ -71,8 +71,86 @@ struct Placement
     int room = -1;
 };
 
+// We store credits as HALF-CREDIT units, avoiding floating-point comparisons.
+// Example: 3.0 credits => 6, 1.5 credits => 3, 1.0 credit => 2.
+struct CourseRequirement
+{
+    string course;
+    int teacher, batch; // Teacher is ASSIGNED by the department, never selected by solver.
+    int theoryHalfCredits = 0;
+    int labHalfCredits = 0;
+    vector<int> theoryPatternMinutes; // Coordinator-approved session durations.
+    vector<int> labPatternMinutes;
+};
+
+// Defaults are a demonstration policy, NOT verified IIT-DU regulations.
+// The coordinator can change either conversion rule in future data input.
+struct CreditPolicy
+{
+    int theoryMinutesPerCredit = 60;
+    int labMinutesPerCredit = 180;
+};
+
+int requiredMinutes(int halfCredits, int minutesPerCredit)
+{
+    if (halfCredits < 0 || minutesPerCredit <= 0 ||
+        halfCredits > 100 || minutesPerCredit > 1000 ||
+        (halfCredits * minutesPerCredit) % 2 != 0)
+        throw invalid_argument("Invalid credit value or credit conversion policy");
+    return halfCredits * minutesPerCredit / 2;
+}
+
+void appendComponentSessions(vector<Session> &sessions,
+                             const CourseRequirement &c,
+                             const vector<int> &patternMinutes,
+                             int expectedMinutes, bool isLab)
+{
+    int total = 0;
+    for (int minutes : patternMinutes)
+    {
+        if (minutes <= 0 || minutes % MINUTES_PER_UNIT != 0 ||
+            !fitsAcademicWindow(isLab ? LAB_START_UNIT : THEORY_START_UNIT,
+                                minutes / MINUTES_PER_UNIT, isLab))
+            throw invalid_argument("Invalid theory/lab session duration for " + c.course);
+        total += minutes;
+    }
+    if (total != expectedMinutes)
+        throw invalid_argument("Session pattern does not match credits for " + c.course);
+
+    for (int minutes : patternMinutes)
+        sessions.push_back({c.course + (isLab ? " Lab" : ""),
+                            c.teacher, c.batch, minutes / MINUTES_PER_UNIT, isLab});
+}
+
+vector<Session> generateRequiredSessions(const vector<CourseRequirement> &courses,
+                                         const CreditPolicy &policy)
+{
+    vector<Session> sessions;
+    for (const CourseRequirement &c : courses)
+    {
+        if (c.course.empty() || c.teacher < 0 ||
+            c.teacher >= static_cast<int>(teachers.size()) ||
+            c.batch < 0 || c.batch >= static_cast<int>(batches.size()) ||
+            (c.theoryHalfCredits == 0 && c.labHalfCredits == 0))
+            throw invalid_argument("Invalid course, assigned teacher, or student group");
+
+        int theoryMinutes = requiredMinutes(c.theoryHalfCredits, policy.theoryMinutesPerCredit);
+        int labMinutes = requiredMinutes(c.labHalfCredits, policy.labMinutesPerCredit);
+        appendComponentSessions(sessions, c, c.theoryPatternMinutes, theoryMinutes, false);
+        appendComponentSessions(sessions, c, c.labPatternMinutes, labMinutes, true);
+    }
+    return sessions;
+}
+
+string creditLabel(int halfCredits)
+{
+    return to_string(halfCredits / 2) + (halfCredits % 2 ? ".5" : ".0");
+}
+
 struct Problem
 {
+    vector<CourseRequirement> courses;
+    CreditPolicy policy;
     vector<Session> sessions;
     // A teacher must be free for EVERY half-hour unit of a session.
     vector<vector<bool>> available =
@@ -82,13 +160,15 @@ struct Problem
 Problem sample()
 {
     Problem p;
-    p.sessions = {
-        {"C++", 0, 0}, {"C++", 0, 0},
-        {"Math", 1, 0}, {"Math", 1, 0},
-        {"Algorithms", 0, 1}, {"Algorithms", 0, 1},
-        {"English", 2, 1}, {"English", 2, 1},
-        {"C++ Lab", 0, 0, 6, true} // 14:00-17:00, consecutive.
+    // Same nine sessions as M1, now DERIVED from course requirements.
+    // Each vector contains approved per-session lengths, in minutes.
+    p.courses = {
+        {"C++", 0, 0, 4, 2, {60, 60}, {180}},
+        {"Math", 1, 0, 4, 0, {60, 60}, {}},
+        {"Algorithms", 0, 1, 4, 0, {60, 60}, {}},
+        {"English", 2, 1, 4, 0, {60, 60}, {}}
     };
+    p.sessions = generateRequiredSessions(p.courses, p.policy);
     p.available[0][0] = false; // Teacher A unavailable Sunday 09:00-09:30.
     return p;
 }
@@ -223,6 +303,17 @@ void showInput(const Problem &p)
     cout << "\nINPUT: " << p.sessions.size()
          << " sessions, 3 teachers, 2 batches, 2 rooms.\n";
     cout << "Theory 09:00-13:00 | Break 13:00-14:00 | Lab 14:00-17:00.\n";
+    if (!p.courses.empty())
+    {
+        cout << "Credit policy (DEMO): theory " << p.policy.theoryMinutesPerCredit
+             << " min/credit; lab " << p.policy.labMinutesPerCredit << " min/credit.\n";
+        cout << "Course requirements (teacher assignments are fixed):\n";
+        for (const CourseRequirement &c : p.courses)
+            cout << "  " << c.course << ": theory " << creditLabel(c.theoryHalfCredits)
+                 << " + lab " << creditLabel(c.labHalfCredits)
+                 << " credits | " << teachers[c.teacher] << " | " << batches[c.batch] << '\n';
+        cout << "Generated weekly sessions:\n";
+    }
     for (size_t i = 0; i < p.sessions.size(); ++i)
     {
         const Session &s = p.sessions[i];
@@ -396,8 +487,12 @@ void selfTest()
     check(intervalsOverlap(10, 6, 12, 2), "overlapping laboratory period detected");
 
     // M1 Step 3: integration checks of the ACTUAL solver and validator.
-    check(s.result.back().slot % UNITS_PER_DAY == LAB_START_UNIT,
-          "solver places three-hour lab at 14:00");
+    bool sampleLabAt14 = false;
+    for (size_t idx = 0; idx < p.sessions.size(); ++idx)
+        if (p.sessions[idx].isLab &&
+            s.result[idx].slot % UNITS_PER_DAY == LAB_START_UNIT)
+            sampleLabAt14 = true;
+    check(sampleLabAt14, "solver places three-hour lab at 14:00");
     check(clockTime(16) == "17:00" && clockTime(10) == "14:00",
           "clock formatting handles lab end time");
 
@@ -456,6 +551,69 @@ void selfTest()
     nextDay.sessions = {{"Theory A", 0, 0}, {"Theory B", 0, 0}};
     check(validate(nextDay, {{0, 0}, {UNITS_PER_DAY, 0}}),
           "same teacher may teach on different days at same time");
+
+    // M2 Step 1: courses + credit policy -> validated weekly sessions.
+    Problem derived = sample();
+    int generatedLabCount = 0;
+    for (const Session &session : derived.sessions)
+        if (session.isLab && session.durationUnits == 6)
+            ++generatedLabCount;
+    check(derived.courses.size() == 4 && derived.sessions.size() == 9 &&
+              derived.sessions[0].course == "C++" && generatedLabCount == 1,
+          "sample sessions generated from credit requirements");
+
+    vector<CourseRequirement> threeCredit = {
+        {"Algorithms", 0, 0, 6, 0, {60, 60, 60}, {}}};
+    vector<Session> three = generateRequiredSessions(threeCredit, CreditPolicy{});
+    check(three.size() == 3 && three[0].durationUnits == 2 &&
+              three[1].durationUnits == 2 && three[2].durationUnits == 2,
+          "three theory credits create three one-hour sessions");
+
+    vector<CourseRequirement> oneAndHalf = {
+        {"Linear Algebra", 1, 0, 3, 0, {90}, {}}};
+    vector<Session> ninetyCredit = generateRequiredSessions(oneAndHalf, CreditPolicy{});
+    check(ninetyCredit.size() == 1 && ninetyCredit[0].durationUnits == 3,
+          "one-and-half theory credits create a ninety-minute session");
+
+    vector<CourseRequirement> combined = {
+        {"Programming", 2, 1, 6, 2, {60, 60, 60}, {180}}};
+    vector<Session> combinedSessions = generateRequiredSessions(combined, CreditPolicy{});
+    check(combinedSessions.size() == 4 && combinedSessions.back().isLab &&
+              combinedSessions.back().durationUnits == 6 &&
+              combinedSessions.back().teacher == 2 && combinedSessions.back().batch == 1,
+          "combined course generates fixed-teacher theory and lab sessions");
+
+    auto rejectsRequirements = [&](const vector<CourseRequirement> &bad,
+                                   const CreditPolicy &policy)
+    {
+        try
+        {
+            (void)generateRequiredSessions(bad, policy);
+        }
+        catch (const invalid_argument &)
+        {
+            return true;
+        }
+        return false;
+    };
+    check(rejectsRequirements({{"Bad Theory", 0, 0, 6, 0, {60, 60}, {}}}, CreditPolicy{}),
+          "mismatched theory contact hours rejected");
+    check(rejectsRequirements({{"Bad Lab", 0, 0, 0, 2, {}, {90, 90}}}, CreditPolicy{}),
+          "split ninety-minute lab sessions rejected");
+    check(rejectsRequirements({{"Bad Duration", 0, 0, 3, 0, {45, 45}, {}}}, CreditPolicy{}),
+          "non-grid-aligned theory sessions rejected");
+    check(rejectsRequirements({{"Bad Teacher", 3, 0, 2, 0, {60}, {}}}, CreditPolicy{}),
+          "invalid fixed instructor reference rejected");
+    check(rejectsRequirements({{"No Credits", 0, 0, 0, 0, {}, {}}}, CreditPolicy{}),
+          "empty credit requirement rejected");
+
+    CreditPolicy longerTheory;
+    longerTheory.theoryMinutesPerCredit = 90;
+    vector<CourseRequirement> alternativePattern = {
+        {"Alternative Policy", 0, 0, 4, 0, {90, 90}, {}}};
+    vector<Session> alternative = generateRequiredSessions(alternativePattern, longerTheory);
+    check(alternative.size() == 2 && alternative[0].durationUnits == 3,
+          "configurable theory contact-hour policy supported");
 
     cout << count << " tests passed.\n";
 }
