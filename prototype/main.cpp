@@ -1,4 +1,4 @@
-// TimeTableX Mini | M2 Step 1: course credits to weekly session requirements (C++17).
+// TimeTableX Mini | M2 Step 2: read validated course requirements from CSV (C++17).
 // Fixed teachers; configurable academic credit policy; validated session patterns.
 #include <iostream>
 #include <vector>
@@ -7,6 +7,7 @@
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
+#include <cctype>
 using namespace std;
 
 const vector<string> days = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"};
@@ -142,6 +143,113 @@ vector<Session> generateRequiredSessions(const vector<CourseRequirement> &course
     return sessions;
 }
 
+// M2 Step 2: deliberately limited CSV format (no quoted/comma-containing fields).
+// Columns: course,teacher_id,batch_id,theory_half_credits,lab_half_credits,
+//          theory_pattern_minutes,lab_pattern_minutes
+// Durations within a pattern are separated by semicolons, e.g. 60;60;60.
+// This parser does not silently guess missing or invalid values.
+string trim(const string &value)
+{
+    size_t first = 0;
+    while (first < value.size() && isspace(static_cast<unsigned char>(value[first])))
+        ++first;
+    size_t last = value.size();
+    while (last > first && isspace(static_cast<unsigned char>(value[last - 1])))
+        --last;
+    return value.substr(first, last - first);
+}
+
+vector<string> splitFields(const string &line, char separator)
+{
+    vector<string> fields;
+    string field;
+    istringstream in(line);
+    while (getline(in, field, separator))
+        fields.push_back(trim(field));
+    // Preserve an empty final CSV field, e.g. a theory-only course ending with ','.
+    if (!line.empty() && line.back() == separator)
+        fields.push_back("");
+    return fields;
+}
+
+int parseNonnegativeInt(const string &text, const string &column)
+{
+    if (text.empty())
+        throw invalid_argument("Missing integer in " + column);
+    for (char c : text)
+        if (c < '0' || c > '9')
+            throw invalid_argument("Invalid nonnegative integer in " + column + ": " + text);
+    try
+    {
+        size_t used = 0;
+        int n = stoi(text, &used);
+        if (used != text.size())
+            throw invalid_argument("Invalid integer in " + column);
+        return n;
+    }
+    catch (const out_of_range &)
+    {
+        throw invalid_argument("Integer out of range in " + column);
+    }
+}
+
+vector<int> parseMinutesPattern(const string &value, const string &column)
+{
+    if (value.empty())
+        return {};
+    vector<int> minutes;
+    for (const string &part : splitFields(value, ';'))
+        minutes.push_back(parseNonnegativeInt(part, column));
+    return minutes;
+}
+
+vector<CourseRequirement> loadCoursesCSV(istream &input)
+{
+    const string expectedHeader =
+        "course,teacher_id,batch_id,theory_half_credits,lab_half_credits,"
+        "theory_pattern_minutes,lab_pattern_minutes";
+    string line;
+    if (!getline(input, line))
+        throw invalid_argument("Course CSV is empty");
+    // Accept files with Windows CRLF line endings and standard whitespace.
+    if (trim(line) != expectedHeader)
+        throw invalid_argument("Incorrect course CSV header");
+
+    vector<CourseRequirement> courses;
+    int lineNumber = 1;
+    while (getline(input, line))
+    {
+        ++lineNumber;
+        if (trim(line).empty())
+            continue;
+        vector<string> fields = splitFields(line, ',');
+        if (fields.size() != 7)
+            throw invalid_argument("CSV line " + to_string(lineNumber) +
+                                   " must contain exactly 7 columns");
+        try
+        {
+            CourseRequirement c;
+            c.course = fields[0];
+            if (c.course.empty() || c.course.find('"') != string::npos)
+                throw invalid_argument("Invalid course name");
+            c.teacher = parseNonnegativeInt(fields[1], "teacher_id");
+            c.batch = parseNonnegativeInt(fields[2], "batch_id");
+            c.theoryHalfCredits = parseNonnegativeInt(fields[3], "theory_half_credits");
+            c.labHalfCredits = parseNonnegativeInt(fields[4], "lab_half_credits");
+            c.theoryPatternMinutes = parseMinutesPattern(fields[5], "theory_pattern_minutes");
+            c.labPatternMinutes = parseMinutesPattern(fields[6], "lab_pattern_minutes");
+            courses.push_back(c);
+        }
+        catch (const invalid_argument &e)
+        {
+            throw invalid_argument("CSV line " + to_string(lineNumber) + ": " + e.what());
+        }
+    }
+    if (courses.empty())
+        throw invalid_argument("Course CSV contains no course rows");
+    return courses;
+}
+
 string creditLabel(int halfCredits)
 {
     return to_string(halfCredits / 2) + (halfCredits % 2 ? ".5" : ".0");
@@ -170,6 +278,19 @@ Problem sample()
     };
     p.sessions = generateRequiredSessions(p.courses, p.policy);
     p.available[0][0] = false; // Teacher A unavailable Sunday 09:00-09:30.
+    return p;
+}
+
+// External courses use the SAME fixed-teacher CSP solver as built-in courses.
+// Teacher availability is all true for now; an availability input file is a later milestone.
+Problem fromCSVFile(const string &path)
+{
+    ifstream input(path);
+    if (!input)
+        throw runtime_error("Cannot open course CSV: " + path);
+    Problem p;
+    p.courses = loadCoursesCSV(input);
+    p.sessions = generateRequiredSessions(p.courses, p.policy);
     return p;
 }
 
@@ -298,7 +419,7 @@ bool validate(const Problem &p, const vector<Placement> &a)
     return true;
 }
 
-void showInput(const Problem &p)
+void showInput(const Problem &p, bool externalData = false)
 {
     cout << "\nINPUT: " << p.sessions.size()
          << " sessions, 3 teachers, 2 batches, 2 rooms.\n";
@@ -323,7 +444,10 @@ void showInput(const Problem &p)
              << " | " << (s.isLab ? "Lab" : "Theory")
              << " | " << s.durationUnits * MINUTES_PER_UNIT << " min\n";
     }
-    cout << "Teacher A unavailable Sunday 09:00-09:30.\n";
+    if (externalData)
+        cout << "File demo: teacher availability is unrestricted (preferences not loaded yet).\n";
+    else
+        cout << "Teacher A unavailable Sunday 09:00-09:30.\n";
 }
 
 void show(const Problem &p, const vector<Placement> &a, int batch = -1)
@@ -390,10 +514,10 @@ bool exportCSV(const Problem &p, const vector<Placement> &a)
     return !f.fail();
 }
 
-void demo(bool impossible)
+void demo(bool impossible, const string &csvPath = "")
 {
-    Problem p = sample();
-    showInput(p);
+    Problem p = csvPath.empty() ? sample() : fromCSVFile(csvPath);
+    showInput(p, !csvPath.empty());
     if (impossible)
     {
         p.available[0].assign(slots, false);
@@ -615,6 +739,52 @@ void selfTest()
     check(alternative.size() == 2 && alternative[0].durationUnits == 3,
           "configurable theory contact-hour policy supported");
 
+    // M2 Step 2: strict file-format parsing and integration with the existing solver.
+    const string header =
+        "course,teacher_id,batch_id,theory_half_credits,lab_half_credits,"
+        "theory_pattern_minutes,lab_pattern_minutes\n";
+    istringstream validCsv(header +
+        "C++,0,0,4,2,60;60,180\n"
+        "Math,1,0,3,0,90,\n"
+        "Algorithms,0,1,6,0,60;60;60,\n"
+        "English,2,1,4,0,60;60,\n");
+    vector<CourseRequirement> loaded = loadCoursesCSV(validCsv);
+    check(loaded.size() == 4 && loaded[0].course == "C++" &&
+          loaded[1].theoryPatternMinutes[0] == 90,
+          "CSV parser loads courses and session patterns");
+    vector<Session> loadedSessions = generateRequiredSessions(loaded, CreditPolicy{});
+    check(loadedSessions.size() == 9 && loadedSessions[3].durationUnits == 3,
+          "CSV course requirements create nine sessions including 90-minute theory");
+    Problem csvProblem;
+    csvProblem.courses = loaded;
+    csvProblem.sessions = loadedSessions;
+    Scheduler csvSolver(csvProblem);
+    check(csvSolver.generate() && validate(csvProblem, csvSolver.result),
+          "CSV-derived course requirements produce a valid timetable");
+
+    auto rejectsCsv = [&](const string &data)
+    {
+        try
+        {
+            istringstream in(data);
+            (void)loadCoursesCSV(in);
+        }
+        catch (const invalid_argument &)
+        {
+            return true;
+        }
+        return false;
+    };
+    check(rejectsCsv(""), "empty CSV rejected");
+    check(rejectsCsv(header), "header-only CSV rejected");
+    check(rejectsCsv("course,teacher,batch\nA,0,0\n"), "incorrect CSV header rejected");
+    check(rejectsCsv(header + "A,0,0,2,0,60\n"), "missing CSV column rejected");
+    check(rejectsCsv(header + "A,zero,0,2,0,60,\n"), "nonnumeric teacher ID rejected");
+    check(rejectsCsv(header + "A,0,0,2,0,60; ,\n"), "invalid session pattern token rejected");
+    istringstream windowsCsv(header + "A,1,0,2,0,60,\r\n");
+    check(loadCoursesCSV(windowsCsv).size() == 1,
+          "Windows CRLF course CSV accepted");
+
     cout << count << " tests passed.\n";
 }
 
@@ -632,9 +802,11 @@ int main(int argc, char *argv[])
                 demo(true);
             else if (arg == "--test")
                 selfTest();
+            else if (arg == "--demo-file" && argc == 3)
+                demo(false, argv[2]);
             else
             {
-                cerr << "Use --demo, --impossible or --test.\n";
+                cerr << "Use --demo, --impossible, --test, or --demo-file <courses.csv>.\n";
                 return 1;
             }
             return 0;
