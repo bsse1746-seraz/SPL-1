@@ -1,5 +1,5 @@
-// TimeTableX Mini | M2 Step 2: read validated course requirements from CSV (C++17).
-// Fixed teachers; configurable academic credit policy; validated session patterns.
+// TimeTableX Mini | M3 Step 1: configurable room metadata and capacity checks (C++17).
+// Fixed teachers, credit-based CSV input, and independent full-duration validation.
 #include <iostream>
 #include <vector>
 #include <string>
@@ -12,8 +12,37 @@ using namespace std;
 
 const vector<string> days = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"};
 const vector<string> teachers = {"Teacher A", "Teacher B", "Teacher C"};
-const vector<string> batches = {"BSSE-17", "BSSE-18"};
-const vector<string> rooms = {"Room-101", "Room-102"};
+// Types are stored now; enforcing a lab-only room is the next M3 checkpoint.
+enum class RoomType { Classroom, ComputerLab };
+
+struct Room
+{
+    string name;
+    int capacity;
+    RoomType type;
+};
+
+struct StudentGroup
+{
+    string name;
+    int size;
+};
+
+string roomTypeName(RoomType type)
+{
+    return type == RoomType::ComputerLab ? "Computer lab" : "Classroom";
+}
+
+// Fictional demonstration resources. Real departments will load these from input.
+// Room-101 is a computer lab, Room-102 an ordinary classroom.
+const vector<Room> defaultRooms = {
+    {"Room-101", 40, RoomType::ComputerLab},
+    {"Room-102", 30, RoomType::Classroom}
+};
+const vector<StudentGroup> defaultGroups = {
+    {"BSSE-17", 32},
+    {"BSSE-18", 26}
+};
 
 constexpr int MINUTES_PER_UNIT = 30;
 constexpr int UNITS_PER_DAY = 16; // 09:00 through 17:00, in 30-minute units.
@@ -131,7 +160,7 @@ vector<Session> generateRequiredSessions(const vector<CourseRequirement> &course
     {
         if (c.course.empty() || c.teacher < 0 ||
             c.teacher >= static_cast<int>(teachers.size()) ||
-            c.batch < 0 || c.batch >= static_cast<int>(batches.size()) ||
+            c.batch < 0 || c.batch >= static_cast<int>(defaultGroups.size()) ||
             (c.theoryHalfCredits == 0 && c.labHalfCredits == 0))
             throw invalid_argument("Invalid course, assigned teacher, or student group");
 
@@ -260,6 +289,8 @@ struct Problem
     vector<CourseRequirement> courses;
     CreditPolicy policy;
     vector<Session> sessions;
+    vector<Room> rooms = defaultRooms;
+    vector<StudentGroup> groups = defaultGroups;
     // A teacher must be free for EVERY half-hour unit of a session.
     vector<vector<bool>> available =
         vector<vector<bool>>(3, vector<bool>(slots, true));
@@ -302,8 +333,15 @@ class Scheduler
     {
         const Session &s = p.sessions[i];
         if (s.teacher < 0 || s.teacher >= static_cast<int>(p.available.size()) ||
-            s.batch < 0 || s.batch >= static_cast<int>(batches.size()) ||
-            room < 0 || room >= static_cast<int>(rooms.size()))
+            s.batch < 0 || s.batch >= static_cast<int>(p.groups.size()) ||
+            room < 0 || room >= static_cast<int>(p.rooms.size()) ||
+            slot < 0 || slot >= slots)
+            return false;
+
+        // HARD: every student in this group needs a seat for the full class.
+        // Lab room TYPE is not enforced until M3 Step 2.
+        if (p.groups[s.batch].size <= 0 || p.rooms[room].capacity <= 0 ||
+            p.groups[s.batch].size > p.rooms[room].capacity)
             return false;
 
         int day = slot / UNITS_PER_DAY;
@@ -344,7 +382,7 @@ class Scheduler
 
         for (int slot = 0; slot < slots; ++slot)
         {
-            for (int room = 0; room < static_cast<int>(rooms.size()); ++room)
+            for (int room = 0; room < static_cast<int>(p.rooms.size()); ++room)
             {
                 ++attempts;
                 if (!canPlace(i, slot, room))
@@ -384,9 +422,14 @@ bool validate(const Problem &p, const vector<Placement> &a)
     {
         const Session &s = p.sessions[i];
         if (s.teacher < 0 || s.teacher >= static_cast<int>(p.available.size()) ||
-            s.batch < 0 || s.batch >= static_cast<int>(batches.size()) ||
+            s.batch < 0 || s.batch >= static_cast<int>(p.groups.size()) ||
             a[i].slot < 0 || a[i].slot >= slots ||
-            a[i].room < 0 || a[i].room >= static_cast<int>(rooms.size()))
+            a[i].room < 0 || a[i].room >= static_cast<int>(p.rooms.size()))
+            return false;
+
+        // Independent capacity validation: do not rely on Scheduler::canPlace().
+        if (p.groups[s.batch].size <= 0 || p.rooms[a[i].room].capacity <= 0 ||
+            p.groups[s.batch].size > p.rooms[a[i].room].capacity)
             return false;
 
         int day = a[i].slot / UNITS_PER_DAY;
@@ -421,8 +464,16 @@ bool validate(const Problem &p, const vector<Placement> &a)
 
 void showInput(const Problem &p, bool externalData = false)
 {
-    cout << "\nINPUT: " << p.sessions.size()
-         << " sessions, 3 teachers, 2 batches, 2 rooms.\n";
+    cout << "\nINPUT: " << p.sessions.size() << " sessions, "
+         << teachers.size() << " teachers, " << p.groups.size()
+         << " groups, " << p.rooms.size() << " rooms.\n";
+    cout << "Room inventory (capacity is mandatory; types shown for next M3 step):\n";
+    for (const Room &r : p.rooms)
+        cout << "  " << r.name << " | " << roomTypeName(r.type)
+             << " | capacity " << r.capacity << "\n";
+    cout << "Student group sizes:\n";
+    for (const StudentGroup &g : p.groups)
+        cout << "  " << g.name << " | " << g.size << " students\n";
     cout << "Theory 09:00-13:00 | Break 13:00-14:00 | Lab 14:00-17:00.\n";
     if (!p.courses.empty())
     {
@@ -432,7 +483,7 @@ void showInput(const Problem &p, bool externalData = false)
         for (const CourseRequirement &c : p.courses)
             cout << "  " << c.course << ": theory " << creditLabel(c.theoryHalfCredits)
                  << " + lab " << creditLabel(c.labHalfCredits)
-                 << " credits | " << teachers[c.teacher] << " | " << batches[c.batch] << '\n';
+                 << " credits | " << teachers[c.teacher] << " | " << p.groups[c.batch].name << '\n';
         cout << "Generated weekly sessions:\n";
     }
     for (size_t i = 0; i < p.sessions.size(); ++i)
@@ -440,7 +491,7 @@ void showInput(const Problem &p, bool externalData = false)
         const Session &s = p.sessions[i];
         cout << i + 1 << ". " << s.course
              << " | " << teachers[s.teacher]
-             << " | " << batches[s.batch]
+             << " | " << p.groups[s.batch].name
              << " | " << (s.isLab ? "Lab" : "Theory")
              << " | " << s.durationUnits * MINUTES_PER_UNIT << " min\n";
     }
@@ -471,8 +522,8 @@ void show(const Problem &p, const vector<Placement> &a, int batch = -1)
                  << setw(15) << s.course
                  << setw(10) << (s.isLab ? "Lab" : "Theory")
                  << setw(13) << teachers[s.teacher]
-                 << setw(12) << batches[s.batch]
-                 << rooms[a[i].room] << '\n';
+                 << setw(12) << p.groups[s.batch].name
+                 << p.rooms[a[i].room].name << '\n';
         }
 }
 
@@ -507,8 +558,8 @@ bool exportCSV(const Problem &p, const vector<Placement> &a)
                   << csvCell(s.course) << ','
                   << csvCell(s.isLab ? "Lab" : "Theory") << ','
                   << csvCell(teachers[s.teacher]) << ','
-                  << csvCell(batches[s.batch]) << ','
-                  << csvCell(rooms[a[i].room]) << '\n';
+                  << csvCell(p.groups[s.batch].name) << ','
+                  << csvCell(p.rooms[a[i].room].name) << '\n';
             }
     f.close();
     return !f.fail();
@@ -542,7 +593,7 @@ void demo(bool impossible, const string &csvPath = "")
     cout << "\nCandidate attempts: " << engine.attempts
          << "; backtracks: " << engine.backtracks << '\n';
     cout << "This is the first valid solution; preferences are not optimized yet.\n";
-    cout << "Room facility/capacity rules will be added in M3.\n";
+    cout << "Room capacities are enforced; lab room types will be enforced in M3 Step 2.\n";
     cout << (exportCSV(p, engine.result)
                  ? "Saved timetable.csv in the working folder.\n"
                  : "Could not save timetable.csv.\n");
@@ -784,6 +835,63 @@ void selfTest()
     istringstream windowsCsv(header + "A,1,0,2,0,60,\r\n");
     check(loadCoursesCSV(windowsCsv).size() == 1,
           "Windows CRLF course CSV accepted");
+
+    // M3 Step 1: room capacity is a HARD constraint for solver AND validator.
+    check(defaultRooms.size() == 2 && defaultRooms[0].type == RoomType::ComputerLab &&
+              defaultRooms[1].type == RoomType::Classroom &&
+              roomTypeName(defaultRooms[0].type) == "Computer lab",
+          "room types and capacities are represented");
+    check(defaultGroups.size() == 2 && defaultGroups[0].size == 32 &&
+              defaultRooms[0].capacity == 40,
+          "student group sizes and room capacities are represented");
+
+    Problem tooSmall;
+    tooSmall.sessions = {{"Theory", 0, 0}};
+    tooSmall.rooms[0].capacity = 20;
+    tooSmall.rooms[1].capacity = 35; // Alternate room can fit all 32 students.
+    check(!validate(tooSmall, {{0, 0}}),
+          "validator rejects room below student group size");
+    check(validate(tooSmall, {{0, 1}}),
+          "validator allows room with enough seats");
+
+    Scheduler findsRoom(tooSmall);
+    check(findsRoom.generate() && validate(tooSmall, findsRoom.result) &&
+              findsRoom.result[0].room == 1,
+          "solver skips undersized room and selects fitting room");
+
+    Problem exactlyFits;
+    exactlyFits.sessions = {{"Theory", 0, 0}};
+    exactlyFits.rooms[0].capacity = exactlyFits.groups[0].size;
+    check(validate(exactlyFits, {{0, 0}}),
+          "room capacity equal to group size is allowed");
+
+    Problem noRoom;
+    noRoom.sessions = {{"Theory", 0, 0}};
+    noRoom.rooms[0].capacity = 20;
+    noRoom.rooms[1].capacity = 25;
+    Scheduler noRoomSolver(noRoom);
+    check(!noRoomSolver.generate() && !validate(noRoom, {{0, 0}}) &&
+              !validate(noRoom, {{0, 1}}),
+          "solver rejects scenario with no sufficiently large room");
+
+    Problem badCapacity;
+    badCapacity.sessions = {{"Theory", 0, 0}};
+    badCapacity.rooms[0].capacity = 0;
+    check(!validate(badCapacity, {{0, 0}}),
+          "validator rejects zero-capacity room");
+
+    Problem badGroup;
+    badGroup.sessions = {{"Theory", 0, 0}};
+    badGroup.groups[0].size = 0;
+    check(!validate(badGroup, {{0, 0}}),
+          "validator rejects invalid student group size");
+
+    Problem bigGroup;
+    bigGroup.sessions = {{"Theory", 0, 0}};
+    bigGroup.groups[0].size = 41;
+    Scheduler bigGroupSolver(bigGroup);
+    check(!bigGroupSolver.generate(),
+          "solver refuses group larger than every room");
 
     cout << count << " tests passed.\n";
 }
