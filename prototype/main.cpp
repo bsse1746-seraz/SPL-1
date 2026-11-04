@@ -1,4 +1,4 @@
-// TimeTableX Mini | M3 Step 1: configurable room metadata and capacity checks (C++17).
+// TimeTableX Mini | M3 Step 2: laboratory room suitability (C++17).
 // Fixed teachers, credit-based CSV input, and independent full-duration validation.
 #include <iostream>
 #include <vector>
@@ -12,7 +12,7 @@ using namespace std;
 
 const vector<string> days = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"};
 const vector<string> teachers = {"Teacher A", "Teacher B", "Teacher C"};
-// Types are stored now; enforcing a lab-only room is the next M3 checkpoint.
+// A three-hour lab requires a computer laboratory, not an ordinary classroom.
 enum class RoomType { Classroom, ComputerLab };
 
 struct Room
@@ -94,6 +94,16 @@ struct Session
     int durationUnits = 2; // Two 30-minute units = one hour by default.
     bool isLab = false;
 };
+
+// HARD room suitability rule: theory may use either room type,
+// but laboratory sessions require a computer lab. Capacity is checked separately.
+bool roomSupportsSession(const Room &room, const Session &session)
+{
+    if (session.isLab)
+        return room.type == RoomType::ComputerLab;
+    return room.type == RoomType::Classroom ||
+           room.type == RoomType::ComputerLab;
+}
 
 struct Placement
 {
@@ -338,9 +348,9 @@ class Scheduler
             slot < 0 || slot >= slots)
             return false;
 
-        // HARD: every student in this group needs a seat for the full class.
-        // Lab room TYPE is not enforced until M3 Step 2.
-        if (p.groups[s.batch].size <= 0 || p.rooms[room].capacity <= 0 ||
+        // HARD: correct room type AND enough seats for the entire group.
+        if (!roomSupportsSession(p.rooms[room], s) ||
+            p.groups[s.batch].size <= 0 || p.rooms[room].capacity <= 0 ||
             p.groups[s.batch].size > p.rooms[room].capacity)
             return false;
 
@@ -427,8 +437,10 @@ bool validate(const Problem &p, const vector<Placement> &a)
             a[i].room < 0 || a[i].room >= static_cast<int>(p.rooms.size()))
             return false;
 
-        // Independent capacity validation: do not rely on Scheduler::canPlace().
-        if (p.groups[s.batch].size <= 0 || p.rooms[a[i].room].capacity <= 0 ||
+        // Independently recheck room suitability and capacity.
+        // Do not rely on Scheduler::canPlace().
+        if (!roomSupportsSession(p.rooms[a[i].room], s) ||
+            p.groups[s.batch].size <= 0 || p.rooms[a[i].room].capacity <= 0 ||
             p.groups[s.batch].size > p.rooms[a[i].room].capacity)
             return false;
 
@@ -467,7 +479,7 @@ void showInput(const Problem &p, bool externalData = false)
     cout << "\nINPUT: " << p.sessions.size() << " sessions, "
          << teachers.size() << " teachers, " << p.groups.size()
          << " groups, " << p.rooms.size() << " rooms.\n";
-    cout << "Room inventory (capacity is mandatory; types shown for next M3 step):\n";
+    cout << "Room inventory (capacity and lab suitability enforced):\n";
     for (const Room &r : p.rooms)
         cout << "  " << r.name << " | " << roomTypeName(r.type)
              << " | capacity " << r.capacity << "\n";
@@ -593,7 +605,7 @@ void demo(bool impossible, const string &csvPath = "")
     cout << "\nCandidate attempts: " << engine.attempts
          << "; backtracks: " << engine.backtracks << '\n';
     cout << "This is the first valid solution; preferences are not optimized yet.\n";
-    cout << "Room capacities are enforced; lab room types will be enforced in M3 Step 2.\n";
+    cout << "Room capacity and computer-lab suitability are enforced.\n";
     cout << (exportCSV(p, engine.result)
                  ? "Saved timetable.csv in the working folder.\n"
                  : "Could not save timetable.csv.\n");
@@ -892,6 +904,60 @@ void selfTest()
     Scheduler bigGroupSolver(bigGroup);
     check(!bigGroupSolver.generate(),
           "solver refuses group larger than every room");
+
+    // M3 Step 2: lab-room suitability is a HARD constraint in both paths.
+    Session theorySession = {"Theory", 0, 0, 2, false};
+    Session labSession = {"Lab", 0, 0, 6, true};
+    check(roomSupportsSession(defaultRooms[1], theorySession),
+          "classroom supports theory sessions");
+    check(roomSupportsSession(defaultRooms[0], theorySession),
+          "computer lab may host theory sessions");
+    check(roomSupportsSession(defaultRooms[0], labSession),
+          "computer lab supports laboratory sessions");
+    check(!roomSupportsSession(defaultRooms[1], labSession),
+          "ordinary classroom is unsuitable for laboratory sessions");
+
+    Problem singleLab;
+    singleLab.sessions = {labSession};
+    check(validate(singleLab, {{LAB_START_UNIT, 0}}),
+          "validator accepts afternoon lab in computer laboratory");
+    check(!validate(singleLab, {{LAB_START_UNIT, 1}}),
+          "validator rejects afternoon lab in ordinary classroom");
+
+    Problem classroomFirst = singleLab;
+    classroomFirst.rooms = {defaultRooms[1], defaultRooms[0]};
+    Scheduler laboratoryFinder(classroomFirst);
+    check(laboratoryFinder.generate() &&
+              validate(classroomFirst, laboratoryFinder.result) &&
+              laboratoryFinder.result[0].room == 1,
+          "solver skips first classroom and selects computer laboratory");
+
+    Problem noComputerLab = singleLab;
+    noComputerLab.rooms = {defaultRooms[1], {"Room-103", 60, RoomType::Classroom}};
+    Scheduler noLabRoom(noComputerLab);
+    check(!noLabRoom.generate() && !validate(noComputerLab, {{LAB_START_UNIT, 0}}),
+          "solver rejects lab when all rooms are classrooms");
+
+    Problem undersizedLab = singleLab;
+    undersizedLab.rooms[0].capacity = 30; // BSSE-17 has 32 students.
+    Scheduler smallComputerLab(undersizedLab);
+    check(!smallComputerLab.generate() &&
+              !validate(undersizedLab, {{LAB_START_UNIT, 0}}),
+          "computer lab must also satisfy student group capacity");
+
+    // Verify that the original combined-course demo still uses a suitable lab.
+    Problem demoWithLab = sample();
+    Scheduler labDemo(demoWithLab);
+    bool correctlyPlacedLab = labDemo.generate() &&
+                               validate(demoWithLab, labDemo.result);
+    if (correctlyPlacedLab)
+        for (size_t i = 0; i < demoWithLab.sessions.size(); ++i)
+            if (demoWithLab.sessions[i].isLab &&
+                !roomSupportsSession(demoWithLab.rooms[labDemo.result[i].room],
+                                     demoWithLab.sessions[i]))
+                correctlyPlacedLab = false;
+    check(correctlyPlacedLab,
+          "combined theory and laboratory demo obeys room suitability");
 
     cout << count << " tests passed.\n";
 }
