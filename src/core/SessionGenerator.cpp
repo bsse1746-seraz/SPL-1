@@ -46,20 +46,19 @@ void appendComponentSessions(vector<Session> &sessions,
 
 } // namespace
 
-vector<Session> generateRequiredSessions(const vector<CourseRequirement> &courses,
-                                         const CreditPolicy &policy)
+vector<Session> generateRequiredSessions(const Problem &problem)
 {
     vector<Session> sessions;
-    for (const CourseRequirement &c : courses)
+    for (const CourseRequirement &c : problem.courses)
     {
         if (c.course.empty() || c.teacher < 0 ||
-            c.teacher >= static_cast<int>(teachers.size()) ||
-            c.batch < 0 || c.batch >= static_cast<int>(defaultGroups.size()) ||
+            c.teacher >= static_cast<int>(problem.teacherNames.size()) ||
+            c.batch < 0 || c.batch >= static_cast<int>(problem.groups.size()) ||
             (c.theoryHalfCredits == 0 && c.labHalfCredits == 0))
             throw invalid_argument("Invalid course, assigned teacher, or student group");
 
-        int theoryMinutes = requiredMinutes(c.theoryHalfCredits, policy.theoryMinutesPerCredit);
-        int labMinutes = requiredMinutes(c.labHalfCredits, policy.labMinutesPerCredit);
+        int theoryMinutes = requiredMinutes(c.theoryHalfCredits, problem.policy.theoryMinutesPerCredit);
+        int labMinutes = requiredMinutes(c.labHalfCredits, problem.policy.labMinutesPerCredit);
         appendComponentSessions(sessions, c, c.theoryPatternMinutes, theoryMinutes, false);
         appendComponentSessions(sessions, c, c.labPatternMinutes, labMinutes, true);
     }

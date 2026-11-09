@@ -5,7 +5,6 @@
 namespace timetablex
 {
 
-std::vector<Session> generateRequiredSessions(const std::vector<CourseRequirement> &courses,
-                                              const CreditPolicy &policy);
+std::vector<Session> generateRequiredSessions(const Problem &problem);
 
 } // namespace timetablex
