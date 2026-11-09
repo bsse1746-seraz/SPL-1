@@ -20,10 +20,9 @@ The old `prototype/main.cpp` was 1,033 lines. It already demonstrated encapsulat
 | Original GNU C++17 build        | GCC 14.2 on Linux with `-Wall -Wextra -Wpedantic`. 74 of 74 self-checks passed.                                                                |
 | Refactored GNU C++17 build      | CMake 3.16.8 and 4.4.4 configure, build, and CTest passed. The direct GCC build also passed with `-Werror`. The CLI printed `74 tests passed.` |
 | Comparison against the original | 15 of 15 comparisons matched in exit status, stdout, stderr, and CSV bytes where present.                                                      |
-| CSV sample                      | Nine sessions, zero hard-constraint violations, 101 candidate attempts and zero backtracks. The C++ lab uses Room-101 on Sunday 14:00–16:00.   |
+| CSV sample                      | Nine sessions, zero hard-constraint violations, 101 candidate attempts and zero backtracks. The C++ lab uses Room-101 on Sunday 14:00â€“16:00.   |
 | Impossible case                 | Search reports exhaustion with the original exit behavior. An existing CSV is preserved.                                                       |
 | Service smoke check             | A custom fourth teacher scheduled through the core library. Blocking that teacher's week returned failure and an empty placement list.         |
-
 | Windows verification | MSYS2 GCC 15.2.0 compiled successfully using the PowerShell build script after correcting compiler selection. All 74 self-tests passed. The CSV demo scheduled nine sessions with zero hard-constraint violations. |
 | Platform coverage | Linux and Windows builds verified. Hosted GitHub Actions execution is pending verification after pushing the branch. |
 
@@ -44,68 +43,68 @@ The 15 comparisons covered self-tests, menu EOF, all interactive choices, the bu
 
 ```text
 TimeTableX/
-├── .github/
-│   └── workflows/
-│       └── cpp.yml
-├── .gitignore
-├── CMakeLists.txt
-├── README.md
-├── SPL1 Project Proposal Form.docx
-├── TimeTableX_SPL1_Project_Proposal_Form_Filled.docx
-├── TimeTableX_SPL1_Project_Proposal_Updated_Slide4.pptx
-├── code.c
-├── data/
-│   └── courses.csv
-├── docs/
-│   ├── ARCHITECTURE.md
-│   ├── GITHUB_INTEGRATION.md
-│   ├── MIDTERM_DEMO.md
-│   ├── REFACTOR_NOTES.md
-│   ├── ROADMAP.md
-│   └── archive/
-│       ├── README.md
-│       └── START_HERE.txt
-├── include/
-│   └── timetablex/
-│       ├── app/
-│       │   └── SchedulingService.hpp
-│       ├── core/
-│       │   ├── Scheduler.hpp
-│       │   ├── SchedulingRules.hpp
-│       │   ├── SessionGenerator.hpp
-│       │   └── Validator.hpp
-│       ├── data/
-│       │   └── DemoData.hpp
-│       ├── io/
-│       │   └── TimetableCsv.hpp
-│       └── models/
-│           └── Problem.hpp
-├── learnings/
-│   ├── 02-credit-based-session-generation.md
-│   ├── 03-csv-course-input.md
-│   ├── 04-room-management.md
-│   ├── 05-modular-architecture.md
-│   └── README.md
-├── scripts/
-│   ├── build.ps1
-│   └── run_windows.bat
-├── src/
-│   ├── app/
-│   │   └── SchedulingService.cpp
-│   ├── cli/
-│   │   ├── Console.cpp
-│   │   └── Console.hpp
-│   ├── core/
-│   │   ├── Scheduler.cpp
-│   │   ├── SchedulingRules.cpp
-│   │   ├── SessionGenerator.cpp
-│   │   └── Validator.cpp
-│   ├── data/
-│   │   └── DemoData.cpp
-│   ├── io/
-│   │   └── TimetableCsv.cpp
-│   └── main.cpp
-└── tests/
-    ├── SelfTests.cpp
-    └── SelfTests.hpp
+â”œâ”€â”€ .github/
+â”‚   â””â”€â”€ workflows/
+â”‚       â””â”€â”€ cpp.yml
+â”œâ”€â”€ .gitignore
+â”œâ”€â”€ CMakeLists.txt
+â”œâ”€â”€ README.md
+â”œâ”€â”€ SPL1 Project Proposal Form.docx
+â”œâ”€â”€ TimeTableX_SPL1_Project_Proposal_Form_Filled.docx
+â”œâ”€â”€ TimeTableX_SPL1_Project_Proposal_Updated_Slide4.pptx
+â”œâ”€â”€ code.c
+â”œâ”€â”€ data/
+â”‚   â””â”€â”€ courses.csv
+â”œâ”€â”€ docs/
+â”‚   â”œâ”€â”€ ARCHITECTURE.md
+â”‚   â”œâ”€â”€ GITHUB_INTEGRATION.md
+â”‚   â”œâ”€â”€ MIDTERM_DEMO.md
+â”‚   â”œâ”€â”€ REFACTOR_NOTES.md
+â”‚   â”œâ”€â”€ ROADMAP.md
+â”‚   â””â”€â”€ archive/
+â”‚       â”œâ”€â”€ README.md
+â”‚       â””â”€â”€ START_HERE.txt
+â”œâ”€â”€ include/
+â”‚   â””â”€â”€ timetablex/
+â”‚       â”œâ”€â”€ app/
+â”‚       â”‚   â””â”€â”€ SchedulingService.hpp
+â”‚       â”œâ”€â”€ core/
+â”‚       â”‚   â”œâ”€â”€ Scheduler.hpp
+â”‚       â”‚   â”œâ”€â”€ SchedulingRules.hpp
+â”‚       â”‚   â”œâ”€â”€ SessionGenerator.hpp
+â”‚       â”‚   â””â”€â”€ Validator.hpp
+â”‚       â”œâ”€â”€ data/
+â”‚       â”‚   â””â”€â”€ DemoData.hpp
+â”‚       â”œâ”€â”€ io/
+â”‚       â”‚   â””â”€â”€ TimetableCsv.hpp
+â”‚       â””â”€â”€ models/
+â”‚           â””â”€â”€ Problem.hpp
+â”œâ”€â”€ learnings/
+â”‚   â”œâ”€â”€ 02-credit-based-session-generation.md
+â”‚   â”œâ”€â”€ 03-csv-course-input.md
+â”‚   â”œâ”€â”€ 04-room-management.md
+â”‚   â”œâ”€â”€ 05-modular-architecture.md
+â”‚   â””â”€â”€ README.md
+â”œâ”€â”€ scripts/
+â”‚   â”œâ”€â”€ build.ps1
+â”‚   â””â”€â”€ run_windows.bat
+â”œâ”€â”€ src/
+â”‚   â”œâ”€â”€ app/
+â”‚   â”‚   â””â”€â”€ SchedulingService.cpp
+â”‚   â”œâ”€â”€ cli/
+â”‚   â”‚   â”œâ”€â”€ Console.cpp
+â”‚   â”‚   â””â”€â”€ Console.hpp
+â”‚   â”œâ”€â”€ core/
+â”‚   â”‚   â”œâ”€â”€ Scheduler.cpp
+â”‚   â”‚   â”œâ”€â”€ SchedulingRules.cpp
+â”‚   â”‚   â”œâ”€â”€ SessionGenerator.cpp
+â”‚   â”‚   â””â”€â”€ Validator.cpp
+â”‚   â”œâ”€â”€ data/
+â”‚   â”‚   â””â”€â”€ DemoData.cpp
+â”‚   â”œâ”€â”€ io/
+â”‚   â”‚   â””â”€â”€ TimetableCsv.cpp
+â”‚   â””â”€â”€ main.cpp
+â””â”€â”€ tests/
+    â”œâ”€â”€ SelfTests.cpp
+    â””â”€â”€ SelfTests.hpp
 ```
