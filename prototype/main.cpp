@@ -12,7 +12,7 @@ using namespace std;
 
 const vector<string> days = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"};
 const vector<string> teachers = {"Teacher A", "Teacher B", "Teacher C"};
-// A three-hour lab requires a computer laboratory, not an ordinary classroom.
+// A lab session requires a computer laboratory, not an ordinary classroom.
 enum class RoomType { Classroom, ComputerLab };
 
 struct Room
@@ -70,8 +70,9 @@ bool fitsAcademicWindow(int startUnit, int durationUnits, bool isLab)
         return false;
 
     if (isLab)
-        return startUnit == LAB_START_UNIT &&
-               durationUnits == DAY_END_UNIT - LAB_START_UNIT;
+        return startUnit >= LAB_START_UNIT &&
+               startUnit < DAY_END_UNIT &&
+               durationUnits <= DAY_END_UNIT - startUnit;
 
     return startUnit >= THEORY_START_UNIT &&
            startUnit < THEORY_END_UNIT &&
@@ -128,7 +129,7 @@ struct CourseRequirement
 struct CreditPolicy
 {
     int theoryMinutesPerCredit = 60;
-    int labMinutesPerCredit = 180;
+    int labMinutesPerCredit = 120;
 };
 
 int requiredMinutes(int halfCredits, int minutesPerCredit)
@@ -312,7 +313,7 @@ Problem sample()
     // Same nine sessions as M1, now DERIVED from course requirements.
     // Each vector contains approved per-session lengths, in minutes.
     p.courses = {
-        {"C++", 0, 0, 4, 2, {60, 60}, {180}},
+        {"C++", 0, 0, 4, 2, {60, 60}, {120}},
         {"Math", 1, 0, 4, 0, {60, 60}, {}},
         {"Algorithms", 0, 1, 4, 0, {60, 60}, {}},
         {"English", 2, 1, 4, 0, {60, 60}, {}}
@@ -677,9 +678,10 @@ void selfTest()
     bool sampleLabAt14 = false;
     for (size_t idx = 0; idx < p.sessions.size(); ++idx)
         if (p.sessions[idx].isLab &&
+            p.sessions[idx].durationUnits == 4 &&
             s.result[idx].slot % UNITS_PER_DAY == LAB_START_UNIT)
             sampleLabAt14 = true;
-    check(sampleLabAt14, "solver places three-hour lab at 14:00");
+    check(sampleLabAt14, "solver places the two-hour sample lab at 14:00");
     check(clockTime(16) == "17:00" && clockTime(10) == "14:00",
           "clock formatting handles lab end time");
 
@@ -729,7 +731,7 @@ void selfTest()
     lab.sessions = {{"Lab", 0, 0, 6, true}};
     check(!validate(lab, {{9, 0}}) && !validate(lab, {{11, 0}}),
           "validator rejects lab outside 14:00-17:00");
-    lab.sessions[0].durationUnits = 4;
+    lab.sessions[0].durationUnits = 7;
     Scheduler wrongLab(lab);
     check(!wrongLab.generate() && !validate(lab, {{10, 0}}),
           "invalid lab duration rejected by solver and validator");
@@ -743,7 +745,7 @@ void selfTest()
     Problem derived = sample();
     int generatedLabCount = 0;
     for (const Session &session : derived.sessions)
-        if (session.isLab && session.durationUnits == 6)
+        if (session.isLab && session.durationUnits == 4)
             ++generatedLabCount;
     check(derived.courses.size() == 4 && derived.sessions.size() == 9 &&
               derived.sessions[0].course == "C++" && generatedLabCount == 1,
@@ -763,10 +765,10 @@ void selfTest()
           "one-and-half theory credits create a ninety-minute session");
 
     vector<CourseRequirement> combined = {
-        {"Programming", 2, 1, 6, 2, {60, 60, 60}, {180}}};
+        {"Programming", 2, 1, 6, 2, {60, 60, 60}, {120}}};
     vector<Session> combinedSessions = generateRequiredSessions(combined, CreditPolicy{});
     check(combinedSessions.size() == 4 && combinedSessions.back().isLab &&
-              combinedSessions.back().durationUnits == 6 &&
+              combinedSessions.back().durationUnits == 4 &&
               combinedSessions.back().teacher == 2 && combinedSessions.back().batch == 1,
           "combined course generates fixed-teacher theory and lab sessions");
 
@@ -785,8 +787,8 @@ void selfTest()
     };
     check(rejectsRequirements({{"Bad Theory", 0, 0, 6, 0, {60, 60}, {}}}, CreditPolicy{}),
           "mismatched theory contact hours rejected");
-    check(rejectsRequirements({{"Bad Lab", 0, 0, 0, 2, {}, {90, 90}}}, CreditPolicy{}),
-          "split ninety-minute lab sessions rejected");
+    check(rejectsRequirements({{"Bad Lab", 0, 0, 0, 2, {}, {180}}}, CreditPolicy{}),
+          "one lab credit rejects the old 180-minute pattern");
     check(rejectsRequirements({{"Bad Duration", 0, 0, 3, 0, {45, 45}, {}}}, CreditPolicy{}),
           "non-grid-aligned theory sessions rejected");
     check(rejectsRequirements({{"Bad Teacher", 3, 0, 2, 0, {60}, {}}}, CreditPolicy{}),
@@ -807,7 +809,7 @@ void selfTest()
         "course,teacher_id,batch_id,theory_half_credits,lab_half_credits,"
         "theory_pattern_minutes,lab_pattern_minutes\n";
     istringstream validCsv(header +
-        "C++,0,0,4,2,60;60,180\n"
+        "C++,0,0,4,2,60;60,120\n"
         "Math,1,0,3,0,90,\n"
         "Algorithms,0,1,6,0,60;60;60,\n"
         "English,2,1,4,0,60;60,\n");
@@ -816,8 +818,9 @@ void selfTest()
           loaded[1].theoryPatternMinutes[0] == 90,
           "CSV parser loads courses and session patterns");
     vector<Session> loadedSessions = generateRequiredSessions(loaded, CreditPolicy{});
-    check(loadedSessions.size() == 9 && loadedSessions[3].durationUnits == 3,
-          "CSV course requirements create nine sessions including 90-minute theory");
+    check(loadedSessions.size() == 9 && loadedSessions[2].isLab &&
+              loadedSessions[2].durationUnits == 4 && loadedSessions[3].durationUnits == 3,
+          "CSV generates nine sessions including a two-hour lab and 90-minute theory");
     Problem csvProblem;
     csvProblem.courses = loaded;
     csvProblem.sessions = loadedSessions;
@@ -958,6 +961,26 @@ void selfTest()
                 correctlyPlacedLab = false;
     check(correctlyPlacedLab,
           "combined theory and laboratory demo obeys room suitability");
+
+    Problem lateLab;
+    lateLab.sessions = {{"Two-Hour Lab", 0, 0, 4, true}};
+    lateLab.available[0][LAB_START_UNIT] = false;
+    lateLab.available[0][LAB_START_UNIT + 1] = false;
+    Scheduler lateLabSolver(lateLab);
+    check(lateLabSolver.generate() && validate(lateLab, lateLabSolver.result) &&
+              lateLabSolver.result[0].slot == LAB_START_UNIT + 2 &&
+              !validate(lateLab, {{LAB_START_UNIT + 3, 0}}),
+          "two-hour lab can start at 15:00 but cannot extend past 17:00");
+
+    Problem splitLab;
+    splitLab.sessions = generateRequiredSessions(
+        {{"Two-Credit Lab", 0, 0, 0, 4, {}, {120, 120}}}, CreditPolicy{});
+    Scheduler splitLabSolver(splitLab);
+    check(splitLab.sessions.size() == 2 && splitLabSolver.generate() &&
+              validate(splitLab, splitLabSolver.result) &&
+              splitLabSolver.result[0].slot / UNITS_PER_DAY !=
+                  splitLabSolver.result[1].slot / UNITS_PER_DAY,
+          "two lab credits can be scheduled as two approved two-hour sessions");
 
     cout << count << " tests passed.\n";
 }

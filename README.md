@@ -28,7 +28,7 @@ The current implementation converts course-credit requirements and coordinator-a
 | Area | Implemented behavior |
 | --- | --- |
 | Academic calendar | Sunday–Thursday; theory 09:00–13:00; break 13:00–14:00; labs 14:00–17:00 |
-| Session durations | 30-minute scheduling units; 60- and 90-minute theory sessions; consecutive 180-minute labs |
+| Session durations | 30-minute scheduling units; 60- and 90-minute theory sessions; uninterrupted lab sessions of up to 180 minutes |
 | Credit-aware sessions | Generates required weekly sessions from separate theory/lab credits and approved patterns |
 | Course input | Reads and validates a simple `data/courses.csv` file |
 | Fixed teachers | Preserves each course's predefined instructor |
@@ -38,7 +38,7 @@ The current implementation converts course-credit requirements and coordinator-a
 | Search | Recursive backtracking; reports failure when the complete search finds no valid assignment |
 | Validation | Independent final timetable validator, separate from the solver's placement check |
 | Output | Departmental and batch-wise console routines, plus `timetable.csv` export |
-| Tests | **72 self-tests passed** at the M3 checkpoint (`73ca3fa`) |
+| Tests | **74 self-tests passed** with the corrected lab credit policy |
 
 ## Scheduling rules used in the prototype
 
@@ -46,7 +46,7 @@ The current implementation converts course-credit requirements and coordinator-a
 | --- | --- |
 | 09:00–13:00 | Theory classes |
 | 13:00–14:00 | **Mandatory break — no classes** |
-| 14:00–17:00 | Consecutive three-hour laboratory sessions |
+| 14:00–17:00 | Laboratory sessions must fit entirely within this window |
 
 Time is divided into **30-minute units**. The solver checks the *whole interval* of each class, not just its start time. Classes sharing a teacher, student group, or room cannot overlap. Independent student groups may have simultaneous sessions when all shared resources are available.
 
@@ -56,10 +56,10 @@ Time is divided into **30-minute units**. The solver checks the *whole interval*
 | --- | ---: | --- |
 | Theory | 3.0 | Three 60-minute classes |
 | Theory | 1.5 | One 90-minute class |
-| Lab | 1.0 | One 180-minute consecutive lab |
-| Combined course | 2.0 theory + 1.0 lab | Two 60-minute theory classes and one 180-minute lab |
+| Lab | 1.0 | One 120-minute lab |
+| Combined course | 2.0 theory + 1.0 lab | Two 60-minute theory classes and one 120-minute lab |
 
-Credits are stored internally in **half-credit units** to avoid floating-point comparison issues. The default `CreditPolicy` uses **60 theory minutes per credit** and **180 lab minutes per credit**; session patterns are checked against the expected contact time. These are demonstration settings, not university regulations.
+Credits are stored internally in **half-credit units** to avoid floating-point comparison issues. The default `CreditPolicy` uses **60 theory minutes per credit** and **120 lab minutes per credit**; session patterns are checked against the expected contact time. These settings describe the project policy. For example, a two-credit lab needs 240 minutes per week and can use two approved 120-minute sessions.
 
 ## How the system works
 
@@ -93,7 +93,7 @@ g++ -std=c++17 -Wall -Wextra -pedantic prototype/main.cpp -o prototype/timetable
 .\prototype\timetablex.exe --test
 ```
 
-Expected M3 result: **72 tests passed**. The checks include cases with undersized rooms and lab sessions without a suitable computer lab.
+Expected M3 result: **74 tests passed**. The checks include cases with undersized rooms and lab sessions without a suitable computer lab.
 
 ### 3. Generate a timetable from CSV input
 
@@ -118,7 +118,7 @@ The sample file is [`data/courses.csv`](data/courses.csv). The parser currently 
 
 ```csv
 course,teacher_id,batch_id,theory_half_credits,lab_half_credits,theory_pattern_minutes,lab_pattern_minutes
-C++,0,0,4,2,60;60,180
+C++,0,0,4,2,60;60,120
 Math,1,0,3,0,90,
 Algorithms,0,1,6,0,60;60;60,
 English,2,1,4,0,60;60,
@@ -173,7 +173,7 @@ Some proposal and historical practice files are also retained at the repository 
 
 Development uses small, testable milestones: **requirements → implementation → compilation → tests → review → commit/push → documentation**.
 
-See the [`learnings/` index](learnings/README.md) for credit generation and CSV parsing. The [M3 room management notes](learnings/04-room-management.md) explain how the solver and validator check room capacity and lab suitability.
+See the [`learnings/` index](learnings/README.md) for credit generation and CSV parsing. The [M3 room management notes](learnings/04-room-management.md) explain how the solver and validator check room capacity and lab suitability. The learning notes describe earlier checkpoints and may show the former 180-minute lab credit policy.
 
 ## Author
 

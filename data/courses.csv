@@ -1,5 +1,5 @@
 course,teacher_id,batch_id,theory_half_credits,lab_half_credits,theory_pattern_minutes,lab_pattern_minutes
-C++,0,0,4,2,60;60,180
+C++,0,0,4,2,60;60,120
 Math,1,0,3,0,90,
 Algorithms,0,1,6,0,60;60;60,
 English,2,1,4,0,60;60,
