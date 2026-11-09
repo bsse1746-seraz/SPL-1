@@ -1,7 +1,9 @@
 $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$compiler = Get-Command g++ -CommandType Application -ErrorAction Stop
+
+$compiler = Get-Command g++ -CommandType Application -ErrorAction Stop | Select-Object -First 1
+
 $sources = @(
     'src/main.cpp'
     'src/app/SchedulingService.cpp'
