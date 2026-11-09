@@ -1,5 +1,7 @@
 // TimeTableX Mini | M3 Step 2: laboratory room suitability (C++17).
 // Fixed teachers, credit-based CSV input, and independent full-duration validation.
+#include "timetablex/models/Problem.hpp"
+
 #include <iostream>
 #include <vector>
 #include <string>
@@ -9,49 +11,12 @@
 #include <stdexcept>
 #include <cctype>
 using namespace std;
-
-const vector<string> days = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"};
-const vector<string> teachers = {"Teacher A", "Teacher B", "Teacher C"};
-// A lab session requires a computer laboratory, not an ordinary classroom.
-enum class RoomType { Classroom, ComputerLab };
-
-struct Room
-{
-    string name;
-    int capacity;
-    RoomType type;
-};
-
-struct StudentGroup
-{
-    string name;
-    int size;
-};
+using namespace timetablex;
 
 string roomTypeName(RoomType type)
 {
     return type == RoomType::ComputerLab ? "Computer lab" : "Classroom";
 }
-
-// Fictional demonstration resources. Real departments will load these from input.
-// Room-101 is a computer lab, Room-102 an ordinary classroom.
-const vector<Room> defaultRooms = {
-    {"Room-101", 40, RoomType::ComputerLab},
-    {"Room-102", 30, RoomType::Classroom}
-};
-const vector<StudentGroup> defaultGroups = {
-    {"BSSE-17", 32},
-    {"BSSE-18", 26}
-};
-
-constexpr int MINUTES_PER_UNIT = 30;
-constexpr int UNITS_PER_DAY = 16; // 09:00 through 17:00, in 30-minute units.
-constexpr int DAYS_PER_WEEK = 5;
-constexpr int slots = DAYS_PER_WEEK * UNITS_PER_DAY;
-constexpr int THEORY_START_UNIT = 0; // 09:00
-constexpr int THEORY_END_UNIT = 8;   // 13:00 (exclusive)
-constexpr int LAB_START_UNIT = 10;   // 14:00
-constexpr int DAY_END_UNIT = 16;     // 17:00 (exclusive)
 
 // Intervals are [start, end): a class ending at 10:00 does not clash
 // with another beginning at 10:00.
@@ -88,14 +53,6 @@ string clockTime(int unitWithinDay)
     return out.str();
 }
 
-struct Session
-{
-    string course;
-    int teacher, batch;
-    int durationUnits = 2; // Two 30-minute units = one hour by default.
-    bool isLab = false;
-};
-
 // HARD room suitability rule: theory may use either room type,
 // but laboratory sessions require a computer lab. Capacity is checked separately.
 bool roomSupportsSession(const Room &room, const Session &session)
@@ -105,32 +62,6 @@ bool roomSupportsSession(const Room &room, const Session &session)
     return room.type == RoomType::Classroom ||
            room.type == RoomType::ComputerLab;
 }
-
-struct Placement
-{
-    int slot = -1; // Weekly index: day * 16 + starting half-hour unit.
-    int room = -1;
-};
-
-// We store credits as HALF-CREDIT units, avoiding floating-point comparisons.
-// Example: 3.0 credits => 6, 1.5 credits => 3, 1.0 credit => 2.
-struct CourseRequirement
-{
-    string course;
-    int teacher, batch; // Teacher is ASSIGNED by the department, never selected by solver.
-    int theoryHalfCredits = 0;
-    int labHalfCredits = 0;
-    vector<int> theoryPatternMinutes; // Coordinator-approved session durations.
-    vector<int> labPatternMinutes;
-};
-
-// Defaults are a demonstration policy, NOT verified IIT-DU regulations.
-// The coordinator can change either conversion rule in future data input.
-struct CreditPolicy
-{
-    int theoryMinutesPerCredit = 60;
-    int labMinutesPerCredit = 120;
-};
 
 int requiredMinutes(int halfCredits, int minutesPerCredit)
 {
@@ -295,18 +226,6 @@ string creditLabel(int halfCredits)
     return to_string(halfCredits / 2) + (halfCredits % 2 ? ".5" : ".0");
 }
 
-struct Problem
-{
-    vector<CourseRequirement> courses;
-    CreditPolicy policy;
-    vector<Session> sessions;
-    vector<Room> rooms = defaultRooms;
-    vector<StudentGroup> groups = defaultGroups;
-    // A teacher must be free for EVERY half-hour unit of a session.
-    vector<vector<bool>> available =
-        vector<vector<bool>>(3, vector<bool>(slots, true));
-};
-
 Problem sample()
 {
     Problem p;
@@ -346,7 +265,7 @@ class Scheduler
         if (s.teacher < 0 || s.teacher >= static_cast<int>(p.available.size()) ||
             s.batch < 0 || s.batch >= static_cast<int>(p.groups.size()) ||
             room < 0 || room >= static_cast<int>(p.rooms.size()) ||
-            slot < 0 || slot >= slots)
+            slot < 0 || slot >= SLOTS_PER_WEEK)
             return false;
 
         // HARD: correct room type AND enough seats for the entire group.
@@ -362,7 +281,7 @@ class Scheduler
             return false;
 
         // Check the teacher's availability at every occupied half-hour unit.
-        if (p.available[s.teacher].size() < static_cast<size_t>(slots))
+        if (p.available[s.teacher].size() < static_cast<size_t>(SLOTS_PER_WEEK))
             return false;
         for (int u = 0; u < s.durationUnits; ++u)
             if (!p.available[s.teacher][slot + u])
@@ -391,7 +310,7 @@ class Scheduler
         if (i == static_cast<int>(p.sessions.size()))
             return true;
 
-        for (int slot = 0; slot < slots; ++slot)
+        for (int slot = 0; slot < SLOTS_PER_WEEK; ++slot)
         {
             for (int room = 0; room < static_cast<int>(p.rooms.size()); ++room)
             {
@@ -434,7 +353,7 @@ bool validate(const Problem &p, const vector<Placement> &a)
         const Session &s = p.sessions[i];
         if (s.teacher < 0 || s.teacher >= static_cast<int>(p.available.size()) ||
             s.batch < 0 || s.batch >= static_cast<int>(p.groups.size()) ||
-            a[i].slot < 0 || a[i].slot >= slots ||
+            a[i].slot < 0 || a[i].slot >= SLOTS_PER_WEEK ||
             a[i].room < 0 || a[i].room >= static_cast<int>(p.rooms.size()))
             return false;
 
@@ -451,7 +370,7 @@ bool validate(const Problem &p, const vector<Placement> &a)
             !fitsAcademicWindow(start, s.durationUnits, s.isLab))
             return false;
 
-        if (p.available[s.teacher].size() < static_cast<size_t>(slots))
+        if (p.available[s.teacher].size() < static_cast<size_t>(SLOTS_PER_WEEK))
             return false;
         for (int u = 0; u < s.durationUnits; ++u)
             if (!p.available[s.teacher][a[i].slot + u])
@@ -521,7 +440,7 @@ void show(const Problem &p, const vector<Placement> &a, int batch = -1)
          << setw(10) << "Type" << setw(13) << "Teacher"
          << setw(12) << "Batch" << "Room\n";
 
-    for (int slot = 0; slot < slots; ++slot)
+    for (int slot = 0; slot < SLOTS_PER_WEEK; ++slot)
         for (size_t i = 0; i < a.size(); ++i)
         {
             const Session &s = p.sessions[i];
@@ -559,7 +478,7 @@ bool exportCSV(const Problem &p, const vector<Placement> &a)
         return false;
 
     f << "Day,Start,End,Course,Type,Teacher,Batch,Room\n";
-    for (int slot = 0; slot < slots; ++slot)
+    for (int slot = 0; slot < SLOTS_PER_WEEK; ++slot)
         for (size_t i = 0; i < a.size(); ++i)
             if (a[i].slot == slot)
             {
@@ -584,7 +503,7 @@ void demo(bool impossible, const string &csvPath = "")
     showInput(p, !csvPath.empty());
     if (impossible)
     {
-        p.available[0].assign(slots, false);
+        p.available[0].assign(SLOTS_PER_WEEK, false);
         cout << "\nIMPOSSIBLE CASE: Teacher A is unavailable all week.\n";
     }
 
@@ -645,15 +564,15 @@ void selfTest()
     check(!pairCase({"A", 0, 0}, {"B", 1, 1}, 0, 0), "room clash rejected");
     check(pairCase({"A", 0, 0}, {"B", 1, 1}, 0, 1), "independent simultaneous classes allowed");
 
-    p.available[0].assign(slots, false);
+    p.available[0].assign(SLOTS_PER_WEEK, false);
     Scheduler impossible(p);
     check(!impossible.generate(), "impossible timetable handled");
 
     // Flexible class initially takes 09:00, but Restricted needs 09:00.
     Problem q;
     q.sessions = {{"Flexible", 0, 0}, {"Restricted", 1, 0}};
-    q.available[0].assign(slots, false);
-    q.available[1].assign(slots, false);
+    q.available[0].assign(SLOTS_PER_WEEK, false);
+    q.available[1].assign(SLOTS_PER_WEEK, false);
     q.available[0][0] = q.available[0][1] = true;
     q.available[0][2] = q.available[0][3] = true;
     q.available[1][0] = q.available[1][1] = true;
