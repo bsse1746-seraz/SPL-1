@@ -1,6 +1,9 @@
 // TimeTableX Mini | M3 Step 2: laboratory room suitability (C++17).
 // Fixed teachers, credit-based CSV input, and independent full-duration validation.
-#include "timetablex/models/Problem.hpp"
+#include "timetablex/core/Scheduler.hpp"
+#include "timetablex/core/SchedulingRules.hpp"
+#include "timetablex/core/SessionGenerator.hpp"
+#include "timetablex/core/Validator.hpp"
 
 #include <iostream>
 #include <vector>
@@ -12,107 +15,6 @@
 #include <cctype>
 using namespace std;
 using namespace timetablex;
-
-string roomTypeName(RoomType type)
-{
-    return type == RoomType::ComputerLab ? "Computer lab" : "Classroom";
-}
-
-// Intervals are [start, end): a class ending at 10:00 does not clash
-// with another beginning at 10:00.
-bool intervalsOverlap(int startA, int durationA,
-                      int startB, int durationB)
-{
-    int endA = startA + durationA;
-    int endB = startB + durationB;
-    return startA < endB && startB < endA;
-}
-
-// These unit numbers are relative to ONE day, beginning at 09:00.
-bool fitsAcademicWindow(int startUnit, int durationUnits, bool isLab)
-{
-    if (startUnit < 0 || durationUnits <= 0)
-        return false;
-
-    if (isLab)
-        return startUnit >= LAB_START_UNIT &&
-               startUnit < DAY_END_UNIT &&
-               durationUnits <= DAY_END_UNIT - startUnit;
-
-    return startUnit >= THEORY_START_UNIT &&
-           startUnit < THEORY_END_UNIT &&
-           durationUnits <= THEORY_END_UNIT - startUnit;
-}
-
-string clockTime(int unitWithinDay)
-{
-    int minutes = 9 * 60 + unitWithinDay * MINUTES_PER_UNIT;
-    ostringstream out;
-    out << setfill('0') << setw(2) << minutes / 60
-        << ':' << setw(2) << minutes % 60;
-    return out.str();
-}
-
-// HARD room suitability rule: theory may use either room type,
-// but laboratory sessions require a computer lab. Capacity is checked separately.
-bool roomSupportsSession(const Room &room, const Session &session)
-{
-    if (session.isLab)
-        return room.type == RoomType::ComputerLab;
-    return room.type == RoomType::Classroom ||
-           room.type == RoomType::ComputerLab;
-}
-
-int requiredMinutes(int halfCredits, int minutesPerCredit)
-{
-    if (halfCredits < 0 || minutesPerCredit <= 0 ||
-        halfCredits > 100 || minutesPerCredit > 1000 ||
-        (halfCredits * minutesPerCredit) % 2 != 0)
-        throw invalid_argument("Invalid credit value or credit conversion policy");
-    return halfCredits * minutesPerCredit / 2;
-}
-
-void appendComponentSessions(vector<Session> &sessions,
-                             const CourseRequirement &c,
-                             const vector<int> &patternMinutes,
-                             int expectedMinutes, bool isLab)
-{
-    int total = 0;
-    for (int minutes : patternMinutes)
-    {
-        if (minutes <= 0 || minutes % MINUTES_PER_UNIT != 0 ||
-            !fitsAcademicWindow(isLab ? LAB_START_UNIT : THEORY_START_UNIT,
-                                minutes / MINUTES_PER_UNIT, isLab))
-            throw invalid_argument("Invalid theory/lab session duration for " + c.course);
-        total += minutes;
-    }
-    if (total != expectedMinutes)
-        throw invalid_argument("Session pattern does not match credits for " + c.course);
-
-    for (int minutes : patternMinutes)
-        sessions.push_back({c.course + (isLab ? " Lab" : ""),
-                            c.teacher, c.batch, minutes / MINUTES_PER_UNIT, isLab});
-}
-
-vector<Session> generateRequiredSessions(const vector<CourseRequirement> &courses,
-                                         const CreditPolicy &policy)
-{
-    vector<Session> sessions;
-    for (const CourseRequirement &c : courses)
-    {
-        if (c.course.empty() || c.teacher < 0 ||
-            c.teacher >= static_cast<int>(teachers.size()) ||
-            c.batch < 0 || c.batch >= static_cast<int>(defaultGroups.size()) ||
-            (c.theoryHalfCredits == 0 && c.labHalfCredits == 0))
-            throw invalid_argument("Invalid course, assigned teacher, or student group");
-
-        int theoryMinutes = requiredMinutes(c.theoryHalfCredits, policy.theoryMinutesPerCredit);
-        int labMinutes = requiredMinutes(c.labHalfCredits, policy.labMinutesPerCredit);
-        appendComponentSessions(sessions, c, c.theoryPatternMinutes, theoryMinutes, false);
-        appendComponentSessions(sessions, c, c.labPatternMinutes, labMinutes, true);
-    }
-    return sessions;
-}
 
 // M2 Step 2: deliberately limited CSV format (no quoted/comma-containing fields).
 // Columns: course,teacher_id,batch_id,theory_half_credits,lab_half_credits,
@@ -255,145 +157,6 @@ Problem fromCSVFile(const string &path)
     return p;
 }
 
-class Scheduler
-{
-    const Problem &p;
-
-    bool canPlace(int i, int slot, int room) const
-    {
-        const Session &s = p.sessions[i];
-        if (s.teacher < 0 || s.teacher >= static_cast<int>(p.available.size()) ||
-            s.batch < 0 || s.batch >= static_cast<int>(p.groups.size()) ||
-            room < 0 || room >= static_cast<int>(p.rooms.size()) ||
-            slot < 0 || slot >= SLOTS_PER_WEEK)
-            return false;
-
-        // HARD: correct room type AND enough seats for the entire group.
-        if (!roomSupportsSession(p.rooms[room], s) ||
-            p.groups[s.batch].size <= 0 || p.rooms[room].capacity <= 0 ||
-            p.groups[s.batch].size > p.rooms[room].capacity)
-            return false;
-
-        int day = slot / UNITS_PER_DAY;
-        int start = slot % UNITS_PER_DAY;
-        if (day < 0 || day >= DAYS_PER_WEEK ||
-            !fitsAcademicWindow(start, s.durationUnits, s.isLab))
-            return false;
-
-        // Check the teacher's availability at every occupied half-hour unit.
-        if (p.available[s.teacher].size() < static_cast<size_t>(SLOTS_PER_WEEK))
-            return false;
-        for (int u = 0; u < s.durationUnits; ++u)
-            if (!p.available[s.teacher][slot + u])
-                return false;
-
-        // Compare intervals, not just their starting times.
-        for (int j = 0; j < i; ++j)
-        {
-            if (result[j].slot < 0 || result[j].slot / UNITS_PER_DAY != day)
-                continue;
-
-            const Session &other = p.sessions[j];
-            int otherStart = result[j].slot % UNITS_PER_DAY;
-            if (intervalsOverlap(start, s.durationUnits,
-                                 otherStart, other.durationUnits) &&
-                (s.teacher == other.teacher ||
-                 s.batch == other.batch ||
-                 room == result[j].room))
-                return false;
-        }
-        return true;
-    }
-
-    bool search(int i)
-    {
-        if (i == static_cast<int>(p.sessions.size()))
-            return true;
-
-        for (int slot = 0; slot < SLOTS_PER_WEEK; ++slot)
-        {
-            for (int room = 0; room < static_cast<int>(p.rooms.size()); ++room)
-            {
-                ++attempts;
-                if (!canPlace(i, slot, room))
-                    continue;
-
-                result[i] = {slot, room}; // Choose a placement.
-                if (search(i + 1))
-                    return true;
-                result[i] = {-1, -1}; // Undo and try another placement.
-                ++backtracks;
-            }
-        }
-        return false;
-    }
-
-public:
-    vector<Placement> result;
-    long long attempts = 0, backtracks = 0;
-
-    explicit Scheduler(const Problem &problem) : p(problem) {}
-
-    bool generate()
-    {
-        result.assign(p.sessions.size(), Placement{});
-        attempts = backtracks = 0;
-        return search(0);
-    }
-};
-
-// Independent completed-schedule check: never calls Scheduler::canPlace().
-bool validate(const Problem &p, const vector<Placement> &a)
-{
-    if (a.size() != p.sessions.size())
-        return false;
-
-    for (size_t i = 0; i < a.size(); ++i)
-    {
-        const Session &s = p.sessions[i];
-        if (s.teacher < 0 || s.teacher >= static_cast<int>(p.available.size()) ||
-            s.batch < 0 || s.batch >= static_cast<int>(p.groups.size()) ||
-            a[i].slot < 0 || a[i].slot >= SLOTS_PER_WEEK ||
-            a[i].room < 0 || a[i].room >= static_cast<int>(p.rooms.size()))
-            return false;
-
-        // Independently recheck room suitability and capacity.
-        // Do not rely on Scheduler::canPlace().
-        if (!roomSupportsSession(p.rooms[a[i].room], s) ||
-            p.groups[s.batch].size <= 0 || p.rooms[a[i].room].capacity <= 0 ||
-            p.groups[s.batch].size > p.rooms[a[i].room].capacity)
-            return false;
-
-        int day = a[i].slot / UNITS_PER_DAY;
-        int start = a[i].slot % UNITS_PER_DAY;
-        if (day >= DAYS_PER_WEEK ||
-            !fitsAcademicWindow(start, s.durationUnits, s.isLab))
-            return false;
-
-        if (p.available[s.teacher].size() < static_cast<size_t>(SLOTS_PER_WEEK))
-            return false;
-        for (int u = 0; u < s.durationUnits; ++u)
-            if (!p.available[s.teacher][a[i].slot + u])
-                return false;
-
-        for (size_t j = 0; j < i; ++j)
-        {
-            if (a[j].slot < 0 || a[j].slot / UNITS_PER_DAY != day)
-                continue;
-
-            const Session &other = p.sessions[j];
-            int otherStart = a[j].slot % UNITS_PER_DAY;
-            if (intervalsOverlap(start, s.durationUnits,
-                                 otherStart, other.durationUnits) &&
-                (a[i].room == a[j].room ||
-                 s.teacher == other.teacher ||
-                 s.batch == other.batch))
-                return false;
-        }
-    }
-    return true;
-}
-
 void showInput(const Problem &p, bool externalData = false)
 {
     cout << "\nINPUT: " << p.sessions.size() << " sessions, "
@@ -513,20 +276,20 @@ void demo(bool impossible, const string &csvPath = "")
         cout << "No valid timetable exists for these demo rules (search exhausted).\n";
         return;
     }
-    if (!validate(p, engine.result))
+    if (!validate(p, engine.placements()))
         throw runtime_error("Internal validation failed.");
 
     cout << "\nSUCCESS: all sessions assigned. Hard-constraint violations: 0.\n";
-    show(p, engine.result);
+    show(p, engine.placements());
     cout << "\nBSSE-17 view:\n";
-    show(p, engine.result, 0);
+    show(p, engine.placements(), 0);
     cout << "\nBSSE-18 view:\n";
-    show(p, engine.result, 1);
-    cout << "\nCandidate attempts: " << engine.attempts
-         << "; backtracks: " << engine.backtracks << '\n';
+    show(p, engine.placements(), 1);
+    cout << "\nCandidate attempts: " << engine.attemptCount()
+         << "; backtracks: " << engine.backtrackCount() << '\n';
     cout << "This is the first valid solution; preferences are not optimized yet.\n";
     cout << "Room capacity and computer-lab suitability are enforced.\n";
-    cout << (exportCSV(p, engine.result)
+    cout << (exportCSV(p, engine.placements())
                  ? "Saved timetable.csv in the working folder.\n"
                  : "Could not save timetable.csv.\n");
 }
@@ -545,11 +308,11 @@ void selfTest()
     // The original nine checks, adapted for 30-minute slots.
     Problem p = sample();
     Scheduler s(p);
-    check(s.generate() && validate(p, s.result), "normal schedule covers all sessions");
-    auto broken = s.result;
+    check(s.generate() && validate(p, s.placements()), "normal schedule covers all sessions");
+    auto broken = s.placements();
     broken[0].slot = 0;
     check(!validate(p, broken), "unavailable teacher rejected");
-    broken = s.result;
+    broken = s.placements();
     broken.pop_back();
     check(!validate(p, broken), "missing session rejected");
 
@@ -577,7 +340,7 @@ void selfTest()
     q.available[0][2] = q.available[0][3] = true;
     q.available[1][0] = q.available[1][1] = true;
     Scheduler retry(q);
-    check(retry.generate() && retry.backtracks > 0 && validate(q, retry.result),
+    check(retry.generate() && retry.backtrackCount() > 0 && validate(q, retry.placements()),
           "dead end undone by backtracking");
 
     // The five academic-window checks from M1 Step 1.
@@ -598,7 +361,7 @@ void selfTest()
     for (size_t idx = 0; idx < p.sessions.size(); ++idx)
         if (p.sessions[idx].isLab &&
             p.sessions[idx].durationUnits == 4 &&
-            s.result[idx].slot % UNITS_PER_DAY == LAB_START_UNIT)
+            s.placements()[idx].slot % UNITS_PER_DAY == LAB_START_UNIT)
             sampleLabAt14 = true;
     check(sampleLabAt14, "solver places the two-hour sample lab at 14:00");
     check(clockTime(16) == "17:00" && clockTime(10) == "14:00",
@@ -607,7 +370,7 @@ void selfTest()
     Problem one;
     one.sessions = {{"90-minute Theory", 0, 0, 3, false}};
     Scheduler ninety(one);
-    check(ninety.generate() && validate(one, ninety.result),
+    check(ninety.generate() && validate(one, ninety.placements()),
           "solver schedules 90-minute theory");
 
     Problem pair;
@@ -637,8 +400,8 @@ void selfTest()
     check(!validate(unavailableMid, {{0, 0}}),
           "validator checks availability inside entire class");
     Scheduler avoidUnavailable(unavailableMid);
-    check(avoidUnavailable.generate() && validate(unavailableMid, avoidUnavailable.result) &&
-              avoidUnavailable.result[0].slot != 0,
+    check(avoidUnavailable.generate() && validate(unavailableMid, avoidUnavailable.placements()) &&
+              avoidUnavailable.placements()[0].slot != 0,
           "solver avoids unavailable interior time unit");
 
     Problem boundary;
@@ -744,7 +507,7 @@ void selfTest()
     csvProblem.courses = loaded;
     csvProblem.sessions = loadedSessions;
     Scheduler csvSolver(csvProblem);
-    check(csvSolver.generate() && validate(csvProblem, csvSolver.result),
+    check(csvSolver.generate() && validate(csvProblem, csvSolver.placements()),
           "CSV-derived course requirements produce a valid timetable");
 
     auto rejectsCsv = [&](const string &data)
@@ -789,8 +552,8 @@ void selfTest()
           "validator allows room with enough seats");
 
     Scheduler findsRoom(tooSmall);
-    check(findsRoom.generate() && validate(tooSmall, findsRoom.result) &&
-              findsRoom.result[0].room == 1,
+    check(findsRoom.generate() && validate(tooSmall, findsRoom.placements()) &&
+              findsRoom.placements()[0].room == 1,
           "solver skips undersized room and selects fitting room");
 
     Problem exactlyFits;
@@ -850,8 +613,8 @@ void selfTest()
     classroomFirst.rooms = {defaultRooms[1], defaultRooms[0]};
     Scheduler laboratoryFinder(classroomFirst);
     check(laboratoryFinder.generate() &&
-              validate(classroomFirst, laboratoryFinder.result) &&
-              laboratoryFinder.result[0].room == 1,
+              validate(classroomFirst, laboratoryFinder.placements()) &&
+              laboratoryFinder.placements()[0].room == 1,
           "solver skips first classroom and selects computer laboratory");
 
     Problem noComputerLab = singleLab;
@@ -871,11 +634,11 @@ void selfTest()
     Problem demoWithLab = sample();
     Scheduler labDemo(demoWithLab);
     bool correctlyPlacedLab = labDemo.generate() &&
-                               validate(demoWithLab, labDemo.result);
+                               validate(demoWithLab, labDemo.placements());
     if (correctlyPlacedLab)
         for (size_t i = 0; i < demoWithLab.sessions.size(); ++i)
             if (demoWithLab.sessions[i].isLab &&
-                !roomSupportsSession(demoWithLab.rooms[labDemo.result[i].room],
+                !roomSupportsSession(demoWithLab.rooms[labDemo.placements()[i].room],
                                      demoWithLab.sessions[i]))
                 correctlyPlacedLab = false;
     check(correctlyPlacedLab,
@@ -886,8 +649,8 @@ void selfTest()
     lateLab.available[0][LAB_START_UNIT] = false;
     lateLab.available[0][LAB_START_UNIT + 1] = false;
     Scheduler lateLabSolver(lateLab);
-    check(lateLabSolver.generate() && validate(lateLab, lateLabSolver.result) &&
-              lateLabSolver.result[0].slot == LAB_START_UNIT + 2 &&
+    check(lateLabSolver.generate() && validate(lateLab, lateLabSolver.placements()) &&
+              lateLabSolver.placements()[0].slot == LAB_START_UNIT + 2 &&
               !validate(lateLab, {{LAB_START_UNIT + 3, 0}}),
           "two-hour lab can start at 15:00 but cannot extend past 17:00");
 
@@ -896,9 +659,9 @@ void selfTest()
         {{"Two-Credit Lab", 0, 0, 0, 4, {}, {120, 120}}}, CreditPolicy{});
     Scheduler splitLabSolver(splitLab);
     check(splitLab.sessions.size() == 2 && splitLabSolver.generate() &&
-              validate(splitLab, splitLabSolver.result) &&
-              splitLabSolver.result[0].slot / UNITS_PER_DAY !=
-                  splitLabSolver.result[1].slot / UNITS_PER_DAY,
+              validate(splitLab, splitLabSolver.placements()) &&
+              splitLabSolver.placements()[0].slot / UNITS_PER_DAY !=
+                  splitLabSolver.placements()[1].slot / UNITS_PER_DAY,
           "two lab credits can be scheduled as two approved two-hour sessions");
 
     cout << count << " tests passed.\n";

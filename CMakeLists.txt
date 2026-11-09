@@ -5,10 +5,19 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+add_library(timetablex_core STATIC
+    src/core/Scheduler.cpp
+    src/core/SchedulingRules.cpp
+    src/core/SessionGenerator.cpp
+    src/core/Validator.cpp
+)
+target_include_directories(timetablex_core PUBLIC include)
+
 add_executable(timetablex prototype/main.cpp)
-target_include_directories(timetablex PRIVATE include)
+target_link_libraries(timetablex PRIVATE timetablex_core)
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(timetablex_core PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(timetablex PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
