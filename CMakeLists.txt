@@ -16,7 +16,12 @@ add_library(timetablex_core STATIC
 )
 target_include_directories(timetablex_core PUBLIC include)
 
-add_executable(timetablex src/main.cpp src/cli/Console.cpp)
+add_executable(timetablex
+    src/main.cpp
+    src/cli/Console.cpp
+    tests/SelfTests.cpp
+)
+target_include_directories(timetablex PRIVATE tests)
 target_link_libraries(timetablex PRIVATE timetablex_core)
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")

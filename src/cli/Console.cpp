@@ -1,23 +1,33 @@
 #include "Console.hpp"
 
+#include "SelfTests.hpp"
+
 #include "timetablex/app/SchedulingService.hpp"
-#include "timetablex/core/Scheduler.hpp"
 #include "timetablex/core/SchedulingRules.hpp"
-#include "timetablex/core/SessionGenerator.hpp"
-#include "timetablex/core/Validator.hpp"
 #include "timetablex/data/DemoData.hpp"
 #include "timetablex/io/TimetableCsv.hpp"
 
 #include <cstddef>
+#include <exception>
 #include <iomanip>
 #include <iostream>
-#include <sstream>
-#include <stdexcept>
+#include <string>
+#include <vector>
 
 namespace timetablex
 {
 
-using namespace std;
+using std::cerr;
+using std::cin;
+using std::cout;
+using std::exception;
+using std::getline;
+using std::left;
+using std::setw;
+using std::size_t;
+using std::string;
+using std::to_string;
+using std::vector;
 
 namespace
 {
@@ -124,389 +134,6 @@ void demo(bool impossible, const string &csvPath = "")
                  : "Could not save timetable.csv.\n");
 }
 
-vector<Session> generateDemoSessions(const vector<CourseRequirement> &courses, const CreditPolicy &policy)
-{
-    Problem problem = makeDemoResources();
-    problem.courses = courses;
-    problem.policy = policy;
-    return generateRequiredSessions(problem);
-}
-
-void selfTest()
-{
-    int count = 0;
-    auto check = [&](bool ok, const string &name)
-    {
-        if (!ok)
-            throw runtime_error("FAILED: " + name);
-        cout << "PASS: " << name << '\n';
-        ++count;
-    };
-
-    // The original nine checks, adapted for 30-minute slots.
-    Problem p = makeDemoProblem();
-    Scheduler s(p);
-    check(s.generate() && validate(p, s.placements()), "normal schedule covers all sessions");
-    auto broken = s.placements();
-    broken[0].slot = 0;
-    check(!validate(p, broken), "unavailable teacher rejected");
-    broken = s.placements();
-    broken.pop_back();
-    check(!validate(p, broken), "missing session rejected");
-
-    auto pairCase = [&](Session a, Session b, int roomA, int roomB)
-    {
-        Problem q = makeDemoResources();
-        q.sessions = {a, b};
-        return validate(q, {{2, roomA}, {2, roomB}});
-    };
-    check(!pairCase({"A", 0, 0}, {"B", 0, 1}, 0, 1), "teacher clash rejected");
-    check(!pairCase({"A", 0, 0}, {"B", 1, 0}, 0, 1), "batch clash rejected");
-    check(!pairCase({"A", 0, 0}, {"B", 1, 1}, 0, 0), "room clash rejected");
-    check(pairCase({"A", 0, 0}, {"B", 1, 1}, 0, 1), "independent simultaneous classes allowed");
-
-    p.available[0].assign(SLOTS_PER_WEEK, false);
-    Scheduler impossible(p);
-    check(!impossible.generate(), "impossible timetable handled");
-
-    // Flexible class initially takes 09:00, but Restricted needs 09:00.
-    Problem q = makeDemoResources();
-    q.sessions = {{"Flexible", 0, 0}, {"Restricted", 1, 0}};
-    q.available[0].assign(SLOTS_PER_WEEK, false);
-    q.available[1].assign(SLOTS_PER_WEEK, false);
-    q.available[0][0] = q.available[0][1] = true;
-    q.available[0][2] = q.available[0][3] = true;
-    q.available[1][0] = q.available[1][1] = true;
-    Scheduler retry(q);
-    check(retry.generate() && retry.backtrackCount() > 0 && validate(q, retry.placements()),
-          "dead end undone by backtracking");
-
-    // The five academic-window checks from M1 Step 1.
-    check(fitsAcademicWindow(0, 2, false), "one-hour theory allowed");
-    check(fitsAcademicWindow(5, 3, false), "90-minute theory allowed");
-    check(!fitsAcademicWindow(7, 2, false), "theory crossing break rejected");
-    check(fitsAcademicWindow(10, 6, true), "three-hour afternoon lab allowed");
-    check(!fitsAcademicWindow(9, 6, true), "lab starting during break rejected");
-
-    // The four interval-overlap checks from M1 Step 2.
-    check(intervalsOverlap(0, 6, 4, 2), "overlapping theory sessions detected");
-    check(!intervalsOverlap(0, 2, 2, 2), "back-to-back theory sessions allowed");
-    check(!intervalsOverlap(0, 2, 6, 2), "separate theory sessions allowed");
-    check(intervalsOverlap(10, 6, 12, 2), "overlapping laboratory period detected");
-
-    // M1 Step 3: integration checks of the ACTUAL solver and validator.
-    bool sampleLabAt14 = false;
-    for (size_t idx = 0; idx < p.sessions.size(); ++idx)
-        if (p.sessions[idx].isLab &&
-            p.sessions[idx].durationUnits == 4 &&
-            s.placements()[idx].slot % UNITS_PER_DAY == LAB_START_UNIT)
-            sampleLabAt14 = true;
-    check(sampleLabAt14, "solver places the two-hour sample lab at 14:00");
-    check(clockTime(16) == "17:00" && clockTime(10) == "14:00",
-          "clock formatting handles lab end time");
-
-    Problem one = makeDemoResources();
-    one.sessions = {{"90-minute Theory", 0, 0, 3, false}};
-    Scheduler ninety(one);
-    check(ninety.generate() && validate(one, ninety.placements()),
-          "solver schedules 90-minute theory");
-
-    Problem pair = makeDemoResources();
-    pair.sessions = {{"Long Theory", 0, 0, 3, false},
-                     {"Other Theory", 0, 1, 2, false}};
-    check(!validate(pair, {{0, 0}, {2, 1}}),
-          "validator catches partially overlapping teacher sessions");
-    pair.sessions[1].teacher = 1;
-    pair.sessions[1].batch = 0;
-    check(!validate(pair, {{0, 0}, {2, 1}}),
-          "validator catches partially overlapping student group");
-    pair.sessions[1].batch = 1;
-    check(!validate(pair, {{0, 0}, {2, 0}}),
-          "validator catches partially overlapping room bookings");
-    check(validate(pair, {{0, 0}, {2, 1}}),
-          "independent overlapping sessions use separate resources");
-
-    pair.sessions[1].teacher = 0;
-    pair.sessions[1].batch = 0;
-    pair.sessions[0].durationUnits = 2;
-    check(validate(pair, {{0, 0}, {2, 0}}),
-          "back-to-back sessions may share teacher batch and room");
-
-    Problem unavailableMid = makeDemoResources();
-    unavailableMid.sessions = {{"Theory", 0, 0, 2, false}};
-    unavailableMid.available[0][1] = false; // Teacher absent 09:30-10:00.
-    check(!validate(unavailableMid, {{0, 0}}),
-          "validator checks availability inside entire class");
-    Scheduler avoidUnavailable(unavailableMid);
-    check(avoidUnavailable.generate() && validate(unavailableMid, avoidUnavailable.placements()) &&
-              avoidUnavailable.placements()[0].slot != 0,
-          "solver avoids unavailable interior time unit");
-
-    Problem boundary = makeDemoResources();
-    boundary.sessions = {{"Theory", 0, 0, 2, false}};
-    check(!validate(boundary, {{7, 0}}),
-          "validator rejects theory crossing lunch break");
-
-    Problem lab = makeDemoResources();
-    lab.sessions = {{"Lab", 0, 0, 6, true}};
-    check(!validate(lab, {{9, 0}}) && !validate(lab, {{11, 0}}),
-          "validator rejects lab outside 14:00-17:00");
-    lab.sessions[0].durationUnits = 7;
-    Scheduler wrongLab(lab);
-    check(!wrongLab.generate() && !validate(lab, {{10, 0}}),
-          "invalid lab duration rejected by solver and validator");
-
-    Problem nextDay = makeDemoResources();
-    nextDay.sessions = {{"Theory A", 0, 0}, {"Theory B", 0, 0}};
-    check(validate(nextDay, {{0, 0}, {UNITS_PER_DAY, 0}}),
-          "same teacher may teach on different days at same time");
-
-    // M2 Step 1: courses + credit policy -> validated weekly sessions.
-    Problem derived = makeDemoProblem();
-    int generatedLabCount = 0;
-    for (const Session &session : derived.sessions)
-        if (session.isLab && session.durationUnits == 4)
-            ++generatedLabCount;
-    check(derived.courses.size() == 4 && derived.sessions.size() == 9 &&
-              derived.sessions[0].course == "C++" && generatedLabCount == 1,
-          "sample sessions generated from credit requirements");
-
-    vector<CourseRequirement> threeCredit = {
-        {"Algorithms", 0, 0, 6, 0, {60, 60, 60}, {}}};
-    vector<Session> three = generateDemoSessions(threeCredit, CreditPolicy{});
-    check(three.size() == 3 && three[0].durationUnits == 2 &&
-              three[1].durationUnits == 2 && three[2].durationUnits == 2,
-          "three theory credits create three one-hour sessions");
-
-    vector<CourseRequirement> oneAndHalf = {
-        {"Linear Algebra", 1, 0, 3, 0, {90}, {}}};
-    vector<Session> ninetyCredit = generateDemoSessions(oneAndHalf, CreditPolicy{});
-    check(ninetyCredit.size() == 1 && ninetyCredit[0].durationUnits == 3,
-          "one-and-half theory credits create a ninety-minute session");
-
-    vector<CourseRequirement> combined = {
-        {"Programming", 2, 1, 6, 2, {60, 60, 60}, {120}}};
-    vector<Session> combinedSessions = generateDemoSessions(combined, CreditPolicy{});
-    check(combinedSessions.size() == 4 && combinedSessions.back().isLab &&
-              combinedSessions.back().durationUnits == 4 &&
-              combinedSessions.back().teacher == 2 && combinedSessions.back().batch == 1,
-          "combined course generates fixed-teacher theory and lab sessions");
-
-    auto rejectsRequirements = [&](const vector<CourseRequirement> &bad,
-                                   const CreditPolicy &policy)
-    {
-        try
-        {
-            (void)generateDemoSessions(bad, policy);
-        }
-        catch (const invalid_argument &)
-        {
-            return true;
-        }
-        return false;
-    };
-    check(rejectsRequirements({{"Bad Theory", 0, 0, 6, 0, {60, 60}, {}}}, CreditPolicy{}),
-          "mismatched theory contact hours rejected");
-    check(rejectsRequirements({{"Bad Lab", 0, 0, 0, 2, {}, {180}}}, CreditPolicy{}),
-          "one lab credit rejects the old 180-minute pattern");
-    check(rejectsRequirements({{"Bad Duration", 0, 0, 3, 0, {45, 45}, {}}}, CreditPolicy{}),
-          "non-grid-aligned theory sessions rejected");
-    check(rejectsRequirements({{"Bad Teacher", 3, 0, 2, 0, {60}, {}}}, CreditPolicy{}),
-          "invalid fixed instructor reference rejected");
-    check(rejectsRequirements({{"No Credits", 0, 0, 0, 0, {}, {}}}, CreditPolicy{}),
-          "empty credit requirement rejected");
-
-    CreditPolicy longerTheory;
-    longerTheory.theoryMinutesPerCredit = 90;
-    vector<CourseRequirement> alternativePattern = {
-        {"Alternative Policy", 0, 0, 4, 0, {90, 90}, {}}};
-    vector<Session> alternative = generateDemoSessions(alternativePattern, longerTheory);
-    check(alternative.size() == 2 && alternative[0].durationUnits == 3,
-          "configurable theory contact-hour policy supported");
-
-    // M2 Step 2: strict file-format parsing and integration with the existing solver.
-    const string header =
-        "course,teacher_id,batch_id,theory_half_credits,lab_half_credits,"
-        "theory_pattern_minutes,lab_pattern_minutes\n";
-    istringstream validCsv(header +
-        "C++,0,0,4,2,60;60,120\n"
-        "Math,1,0,3,0,90,\n"
-        "Algorithms,0,1,6,0,60;60;60,\n"
-        "English,2,1,4,0,60;60,\n");
-    vector<CourseRequirement> loaded = loadCoursesCSV(validCsv);
-    check(loaded.size() == 4 && loaded[0].course == "C++" &&
-          loaded[1].theoryPatternMinutes[0] == 90,
-          "CSV parser loads courses and session patterns");
-    vector<Session> loadedSessions = generateDemoSessions(loaded, CreditPolicy{});
-    check(loadedSessions.size() == 9 && loadedSessions[2].isLab &&
-              loadedSessions[2].durationUnits == 4 && loadedSessions[3].durationUnits == 3,
-          "CSV generates nine sessions including a two-hour lab and 90-minute theory");
-    Problem csvProblem = makeDemoResources();
-    csvProblem.courses = loaded;
-    csvProblem.sessions = loadedSessions;
-    Scheduler csvSolver(csvProblem);
-    check(csvSolver.generate() && validate(csvProblem, csvSolver.placements()),
-          "CSV-derived course requirements produce a valid timetable");
-
-    auto rejectsCsv = [&](const string &data)
-    {
-        try
-        {
-            istringstream in(data);
-            (void)loadCoursesCSV(in);
-        }
-        catch (const invalid_argument &)
-        {
-            return true;
-        }
-        return false;
-    };
-    check(rejectsCsv(""), "empty CSV rejected");
-    check(rejectsCsv(header), "header-only CSV rejected");
-    check(rejectsCsv("course,teacher,batch\nA,0,0\n"), "incorrect CSV header rejected");
-    check(rejectsCsv(header + "A,0,0,2,0,60\n"), "missing CSV column rejected");
-    check(rejectsCsv(header + "A,zero,0,2,0,60,\n"), "nonnumeric teacher ID rejected");
-    check(rejectsCsv(header + "A,0,0,2,0,60; ,\n"), "invalid session pattern token rejected");
-    istringstream windowsCsv(header + "A,1,0,2,0,60,\r\n");
-    check(loadCoursesCSV(windowsCsv).size() == 1,
-          "Windows CRLF course CSV accepted");
-
-    const Problem resources = makeDemoResources();
-
-    // M3 Step 1: room capacity is a HARD constraint for solver AND validator.
-    check(resources.rooms.size() == 2 && resources.rooms[0].type == RoomType::ComputerLab &&
-              resources.rooms[1].type == RoomType::Classroom &&
-              roomTypeName(resources.rooms[0].type) == "Computer lab",
-          "room types and capacities are represented");
-    check(resources.groups.size() == 2 && resources.groups[0].size == 32 &&
-              resources.rooms[0].capacity == 40,
-          "student group sizes and room capacities are represented");
-
-    Problem tooSmall = makeDemoResources();
-    tooSmall.sessions = {{"Theory", 0, 0}};
-    tooSmall.rooms[0].capacity = 20;
-    tooSmall.rooms[1].capacity = 35; // Alternate room can fit all 32 students.
-    check(!validate(tooSmall, {{0, 0}}),
-          "validator rejects room below student group size");
-    check(validate(tooSmall, {{0, 1}}),
-          "validator allows room with enough seats");
-
-    Scheduler findsRoom(tooSmall);
-    check(findsRoom.generate() && validate(tooSmall, findsRoom.placements()) &&
-              findsRoom.placements()[0].room == 1,
-          "solver skips undersized room and selects fitting room");
-
-    Problem exactlyFits = makeDemoResources();
-    exactlyFits.sessions = {{"Theory", 0, 0}};
-    exactlyFits.rooms[0].capacity = exactlyFits.groups[0].size;
-    check(validate(exactlyFits, {{0, 0}}),
-          "room capacity equal to group size is allowed");
-
-    Problem noRoom = makeDemoResources();
-    noRoom.sessions = {{"Theory", 0, 0}};
-    noRoom.rooms[0].capacity = 20;
-    noRoom.rooms[1].capacity = 25;
-    Scheduler noRoomSolver(noRoom);
-    check(!noRoomSolver.generate() && !validate(noRoom, {{0, 0}}) &&
-              !validate(noRoom, {{0, 1}}),
-          "solver rejects scenario with no sufficiently large room");
-
-    Problem badCapacity = makeDemoResources();
-    badCapacity.sessions = {{"Theory", 0, 0}};
-    badCapacity.rooms[0].capacity = 0;
-    check(!validate(badCapacity, {{0, 0}}),
-          "validator rejects zero-capacity room");
-
-    Problem badGroup = makeDemoResources();
-    badGroup.sessions = {{"Theory", 0, 0}};
-    badGroup.groups[0].size = 0;
-    check(!validate(badGroup, {{0, 0}}),
-          "validator rejects invalid student group size");
-
-    Problem bigGroup = makeDemoResources();
-    bigGroup.sessions = {{"Theory", 0, 0}};
-    bigGroup.groups[0].size = 41;
-    Scheduler bigGroupSolver(bigGroup);
-    check(!bigGroupSolver.generate(),
-          "solver refuses group larger than every room");
-
-    // M3 Step 2: lab-room suitability is a HARD constraint in both paths.
-    Session theorySession = {"Theory", 0, 0, 2, false};
-    Session labSession = {"Lab", 0, 0, 6, true};
-    check(roomSupportsSession(resources.rooms[1], theorySession),
-          "classroom supports theory sessions");
-    check(roomSupportsSession(resources.rooms[0], theorySession),
-          "computer lab may host theory sessions");
-    check(roomSupportsSession(resources.rooms[0], labSession),
-          "computer lab supports laboratory sessions");
-    check(!roomSupportsSession(resources.rooms[1], labSession),
-          "ordinary classroom is unsuitable for laboratory sessions");
-
-    Problem singleLab = makeDemoResources();
-    singleLab.sessions = {labSession};
-    check(validate(singleLab, {{LAB_START_UNIT, 0}}),
-          "validator accepts afternoon lab in computer laboratory");
-    check(!validate(singleLab, {{LAB_START_UNIT, 1}}),
-          "validator rejects afternoon lab in ordinary classroom");
-
-    Problem classroomFirst = singleLab;
-    classroomFirst.rooms = {resources.rooms[1], resources.rooms[0]};
-    Scheduler laboratoryFinder(classroomFirst);
-    check(laboratoryFinder.generate() &&
-              validate(classroomFirst, laboratoryFinder.placements()) &&
-              laboratoryFinder.placements()[0].room == 1,
-          "solver skips first classroom and selects computer laboratory");
-
-    Problem noComputerLab = singleLab;
-    noComputerLab.rooms = {resources.rooms[1], {"Room-103", 60, RoomType::Classroom}};
-    Scheduler noLabRoom(noComputerLab);
-    check(!noLabRoom.generate() && !validate(noComputerLab, {{LAB_START_UNIT, 0}}),
-          "solver rejects lab when all rooms are classrooms");
-
-    Problem undersizedLab = singleLab;
-    undersizedLab.rooms[0].capacity = 30; // BSSE-17 has 32 students.
-    Scheduler smallComputerLab(undersizedLab);
-    check(!smallComputerLab.generate() &&
-              !validate(undersizedLab, {{LAB_START_UNIT, 0}}),
-          "computer lab must also satisfy student group capacity");
-
-    // Verify that the original combined-course demo still uses a suitable lab.
-    Problem demoWithLab = makeDemoProblem();
-    Scheduler labDemo(demoWithLab);
-    bool correctlyPlacedLab = labDemo.generate() &&
-                               validate(demoWithLab, labDemo.placements());
-    if (correctlyPlacedLab)
-        for (size_t i = 0; i < demoWithLab.sessions.size(); ++i)
-            if (demoWithLab.sessions[i].isLab &&
-                !roomSupportsSession(demoWithLab.rooms[labDemo.placements()[i].room],
-                                     demoWithLab.sessions[i]))
-                correctlyPlacedLab = false;
-    check(correctlyPlacedLab,
-          "combined theory and laboratory demo obeys room suitability");
-
-    Problem lateLab = makeDemoResources();
-    lateLab.sessions = {{"Two-Hour Lab", 0, 0, 4, true}};
-    lateLab.available[0][LAB_START_UNIT] = false;
-    lateLab.available[0][LAB_START_UNIT + 1] = false;
-    Scheduler lateLabSolver(lateLab);
-    check(lateLabSolver.generate() && validate(lateLab, lateLabSolver.placements()) &&
-              lateLabSolver.placements()[0].slot == LAB_START_UNIT + 2 &&
-              !validate(lateLab, {{LAB_START_UNIT + 3, 0}}),
-          "two-hour lab can start at 15:00 but cannot extend past 17:00");
-
-    Problem splitLab = makeDemoResources();
-    splitLab.sessions = generateDemoSessions(
-        {{"Two-Credit Lab", 0, 0, 0, 4, {}, {120, 120}}}, CreditPolicy{});
-    Scheduler splitLabSolver(splitLab);
-    check(splitLab.sessions.size() == 2 && splitLabSolver.generate() &&
-              validate(splitLab, splitLabSolver.placements()) &&
-              splitLabSolver.placements()[0].slot / UNITS_PER_DAY !=
-                  splitLabSolver.placements()[1].slot / UNITS_PER_DAY,
-          "two lab credits can be scheduled as two approved two-hour sessions");
-
-    cout << count << " tests passed.\n";
-}
-
 } // namespace
 
 int runConsole(int argc, char *argv[])
@@ -522,7 +149,7 @@ int runConsole(int argc, char *argv[])
             else if (arg == "--impossible")
                 demo(true);
             else if (arg == "--test")
-                selfTest();
+                runSelfTests();
             else if (arg == "--demo-file" && argc == 3)
                 demo(false, argv[2]);
             else
@@ -543,7 +170,7 @@ int runConsole(int argc, char *argv[])
             else if (input == "2")
                 demo(true);
             else if (input == "3")
-                selfTest();
+                runSelfTests();
             else
                 cout << "Enter 0, 1, 2 or 3.\n";
         }
