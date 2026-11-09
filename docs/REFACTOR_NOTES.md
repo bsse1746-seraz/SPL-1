@@ -15,28 +15,30 @@ The old `prototype/main.cpp` was 1,033 lines. It already demonstrated encapsulat
 
 ## Verification
 
-| Check | Observed result |
-| --- | --- |
-| Original GNU C++17 build | GCC 14.2 on Linux with `-Wall -Wextra -Wpedantic`. 74 of 74 self-checks passed. |
-| Refactored GNU C++17 build | CMake 3.16.8 and 4.4.4 configure, build, and CTest passed. The direct GCC build also passed with `-Werror`. The CLI printed `74 tests passed.` |
-| Comparison against the original | 15 of 15 comparisons matched in exit status, stdout, stderr, and CSV bytes where present. |
-| CSV sample | Nine sessions, zero hard-constraint violations, 101 candidate attempts and zero backtracks. The C++ lab uses Room-101 on Sunday 14:00–16:00. |
-| Impossible case | Search reports exhaustion with the original exit behavior. An existing CSV is preserved. |
-| Service smoke check | A custom fourth teacher scheduled through the core library. Blocking that teacher's week returned failure and an empty placement list. |
-| Platform coverage | Linux builds ran locally. Windows/MinGW and the hosted GitHub Actions run still need verification in those environments. |
+| Check                           | Observed result                                                                                                                                |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Original GNU C++17 build        | GCC 14.2 on Linux with `-Wall -Wextra -Wpedantic`. 74 of 74 self-checks passed.                                                                |
+| Refactored GNU C++17 build      | CMake 3.16.8 and 4.4.4 configure, build, and CTest passed. The direct GCC build also passed with `-Werror`. The CLI printed `74 tests passed.` |
+| Comparison against the original | 15 of 15 comparisons matched in exit status, stdout, stderr, and CSV bytes where present.                                                      |
+| CSV sample                      | Nine sessions, zero hard-constraint violations, 101 candidate attempts and zero backtracks. The C++ lab uses Room-101 on Sunday 14:00–16:00.   |
+| Impossible case                 | Search reports exhaustion with the original exit behavior. An existing CSV is preserved.                                                       |
+| Service smoke check             | A custom fourth teacher scheduled through the core library. Blocking that teacher's week returned failure and an empty placement list.         |
+
+| Windows verification | MSYS2 GCC 15.2.0 compiled successfully using the PowerShell build script after correcting compiler selection. All 74 self-tests passed. The CSV demo scheduled nine sessions with zero hard-constraint violations. |
+| Platform coverage | Linux and Windows builds verified. Hosted GitHub Actions execution is pending verification after pushing the branch. |
 
 The 15 comparisons covered self-tests, menu EOF, all interactive choices, the built-in demo, sample CSV, CRLF CSV, impossible mode with and without an existing export, unknown switch, missing CSV argument, missing CSV path, invalid header, invalid credit pattern, unschedulable file input, and export failure.
 
 ## Development stages
 
-| Stage | Commit subject |
-| --- | --- |
-| A | `build: add CMake for the verified prototype` |
-| B | `refactor: extract timetable domain models` |
-| C | `refactor: separate scheduling rules search and validation` |
-| D | `refactor: separate CSV console and scheduling service` |
-| E | `test: extract self-tests and add reproducible build workflows` |
-| F | `docs: explain the modular scheduler and midterm workflow` |
+| Stage | Commit subject                                                  |
+| ----- | --------------------------------------------------------------- |
+| A     | `build: add CMake for the verified prototype`                   |
+| B     | `refactor: extract timetable domain models`                     |
+| C     | `refactor: separate scheduling rules search and validation`     |
+| D     | `refactor: separate CSV console and scheduling service`         |
+| E     | `test: extract self-tests and add reproducible build workflows` |
+| F     | `docs: explain the modular scheduler and midterm workflow`      |
 
 ## Final source tree
 
