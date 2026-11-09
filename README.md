@@ -7,7 +7,7 @@
 **Developer:** Mohammad Seraz Alam Raihan  
 **Roll:** BSSE1746  
 **Language:** C++17 (STL)  
-**Project status:** Active development — core scheduling and CSV course input implemented on [`feature/lab-scheduling`](https://github.com/bsse1746-seraz/SPL-1/tree/feature/lab-scheduling)
+**Project status:** M1–M3 complete on [`feature/lab-scheduling`](https://github.com/bsse1746-seraz/SPL-1/tree/feature/lab-scheduling)
 
 ---
 
@@ -33,11 +33,12 @@ The current implementation converts course-credit requirements and coordinator-a
 | Course input | Reads and validates a simple `data/courses.csv` file |
 | Fixed teachers | Preserves each course's predefined instructor |
 | Hard conflicts | Prevents overlapping teacher, student-group, and room bookings for the entire duration |
+| Room capacity and type | Checks room capacity against student group size and requires computer labs for lab sessions |
 | Availability | Supports per-unit teacher unavailability in the scheduling model; external availability input is not yet implemented |
 | Search | Recursive backtracking; reports failure when the complete search finds no valid assignment |
 | Validation | Independent final timetable validator, separate from the solver's placement check |
 | Output | Departmental and batch-wise console routines, plus `timetable.csv` export |
-| Tests | **52 self-tests passed** in the latest locally reported M2 Step 2 run |
+| Tests | **72 self-tests passed** at the M3 checkpoint (`73ca3fa`) |
 
 ## Scheduling rules used in the prototype
 
@@ -92,13 +93,15 @@ g++ -std=c++17 -Wall -Wextra -pedantic prototype/main.cpp -o prototype/timetable
 .\prototype\timetablex.exe --test
 ```
 
-Latest locally reported checkpoint: **52 tests passed**. These are program self-tests; GitHub Actions/CI has not been configured.
+Expected M3 result: **72 tests passed**. The checks include cases with undersized rooms and lab sessions without a suitable computer lab.
 
 ### 3. Generate a timetable from CSV input
 
 ```powershell
 .\prototype\timetablex.exe --demo-file data/courses.csv
 ```
+
+The example CSV generates nine sessions. The solver places all nine, and the validator checks the completed timetable for hard constraint violations.
 
 ### 4. Try the built-in scenarios
 
@@ -153,14 +156,14 @@ Some proposal and historical practice files are also retained at the repository 
 | --- | --- |
 | **M1:** Academic windows, interval overlap checks and multi-hour scheduling | **Implemented and locally tested** |
 | **M2:** Credit-based session generation and CSV course input | **Implemented and locally tested** |
-| **M3:** Room types, capacities and laboratory suitability | Planned |
+| **M3:** Room types, capacities and laboratory suitability | **Implemented and locally tested** |
 | **M4:** Teacher preference input and weighted penalties | Planned |
 | **M5:** Search heuristics (MRV / forward checking), optimization and evaluation | Planned |
 | **Later:** More general department datasets, improved UI and export options | Planned |
 
 ### Important limitations
 
-- Rooms are currently interchangeable; **capacity, equipment, and specialized lab matching are not enforced**.
+- Room and student group data are defined in the prototype. Lab suitability is based on room type and capacity.
 - External teacher availability/preferences are not yet read from files.
 - Preferences, penalty scoring, MRV, forward checking, and local-search optimization are **not implemented**.
 - The built-in demo has three teachers, two student groups, and two rooms; the project is not yet a general multi-department system.
@@ -170,7 +173,7 @@ Some proposal and historical practice files are also retained at the repository 
 
 Development uses small, testable milestones: **requirements → implementation → compilation → tests → review → commit/push → documentation**.
 
-See the [`learnings/` index](learnings/README.md) for explanations of the credit-generation model, CSV parsing, design decisions, and viva preparation. Commit history is retained in Git for instructor review.
+See the [`learnings/` index](learnings/README.md) for credit generation and CSV parsing. The [M3 room management notes](learnings/04-room-management.md) explain how the solver and validator check room capacity and lab suitability.
 
 ## Author
 
