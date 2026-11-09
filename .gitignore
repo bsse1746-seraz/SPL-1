@@ -55,3 +55,6 @@ dkms.conf
 *.dwo
 # TimeTableX generated timetable output
 /timetable.csv
+
+# CMake and PowerShell build outputs
+/build/
